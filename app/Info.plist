@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Kept</string>
+    <key>CFBundleDisplayName</key>
+    <string>Kept</string>
+    <!-- Renamed from com.chip.PhotoBackup on 2026-08-13. The TCC grants
+         (Photos, app data, network volumes), the login-item registration, and
+         the UserDefaults domain are all keyed to this identifier, so the
+         change cost one round of re-consent and a migration of
+         ~/Library/Preferences/com.chip.*.plist. Changing it again costs the
+         same; there is no reason left to. -->
+    <key>CFBundleIdentifier</key>
+    <string>com.chip.Kept</string>
+    <key>CFBundleExecutable</key>
+    <string>Kept</string>
+    <!-- Built from icon/kept-default.svg by make-icon.sh. LSUIElement means no
+         Dock icon, but this is still what Finder, Get Info, System Settings →
+         Login Items, and notification banners show. -->
+    <key>CFBundleIconFile</key>
+    <string>Kept</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <!-- macOS 27 and later. That also makes Kept Apple silicon only: macOS 26
+         was the last release for Intel Macs, and the bundled Python is arm64. -->
+    <key>LSMinimumSystemVersion</key>
+    <string>27.0</string>
+    <!-- Menubar-only: no Dock icon, no app switcher entry -->
+    <key>LSUIElement</key>
+    <true/>
+    <!-- Kept no longer asks for Photos access: the library is read as files,
+         under Full Disk Access, and the narrower Photos grant has been
+         unobtainable since the bundle identifier changed (self-signed, no
+         Team ID). The key stays because the bundled osxphotos links Apple's
+         Photos framework, and macOS terminates a process that touches PhotoKit
+         without a usage description rather than merely denying it. -->
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Kept copies your library to a backup folder every night.</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Chip Cressman</string>
+</dict>
+</plist>

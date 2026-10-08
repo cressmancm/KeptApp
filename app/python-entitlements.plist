@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements for the BUNDLED PYTHON INTERPRETER ONLY — never for Kept itself.
+
+  Entitlements attach to a process, not to the libraries it loads, so this file
+  is applied to Contents/Resources/python/bin/* and nothing else. The Swift app
+  links only system frameworks and is signed with the hardened runtime and no
+  entitlements at all, keeping full library validation.
+
+  Why the interpreter needs the relaxation: library validation requires every
+  loaded library to share the main binary's Team ID. The 201 bundled .so and
+  .dylib files are signed with the same "Kept Dev" certificate as the
+  interpreter, but a self-signed certificate carries no Team ID, so the check
+  has nothing to match and refuses the load:
+
+      ImportError: dlopen(.../objc/_objc.cpython-313-darwin.so):
+        code signature not valid for use in process:
+        mapping process and mapped file (non-platform) have different Team IDs
+
+  A Developer ID certificate supplies a Team ID, so build.sh does not apply this
+  file when signing with one (release.sh): release builds keep library
+  validation on. Only local "Kept Dev" builds carry the exemption.
+
+  Deliberately NOT included: com.apple.security.cs.allow-unsigned-executable-memory.
+  It is the other entitlement bundled interpreters usually need, but libffi
+  closures via both ctypes and cffi were verified working without it.
+-->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

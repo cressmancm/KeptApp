@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+
+  <defs>
+    <mask id="backMask" maskUnits="userSpaceOnUse">
+      <rect x="0" y="0" width="1024" height="1024" fill="#fff"></rect>
+      <rect x="270.5" y="323.7" width="611.8" height="492.2" rx="119.6" fill="#000"></rect>
+    </mask>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1C2836"></stop><stop offset="1" stop-color="#0E151D"></stop>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" fill="url(#ground)"></rect>
+  <g mask="url(#backMask)" opacity="0.42">
+    <rect x="190" y="257" width="515.2" height="395.6" rx="101.2" fill="none" stroke="#E9EEF3" stroke-width="48.3"></rect>
+  </g>
+  <rect x="318.8" y="372" width="515.2" height="395.6" rx="101.2" fill="#E9EEF3" stroke="#E9EEF3" stroke-width="48.3"></rect>
+  <circle cx="447.6" cy="500.8" r="48.3" fill="#141D27"></circle>
+  <path d="M364.8 735.4l133.4-147.2 96.6 105.8 73.6-78.2 119.6 119.6" fill="none" stroke="#141D27" stroke-width="48.3" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>

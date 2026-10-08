@@ -1,0 +1,23 @@
+import Foundation
+
+// Kept has three modes, chosen before any UI exists.
+//
+// `--staleness-check` is the LaunchAgent's headless invocation: it reads the
+// run history, may post a notification, and exits — it must never become the
+// menubar app, or the watchdog would resurrect an app the user deliberately
+// quit. That decision has to happen ahead of SwiftUI, which is why this file
+// exists and `KeptApp` no longer carries @main.
+if CommandLine.arguments.contains("--staleness-check") {
+    StalenessCheck.runAndExit()
+}
+
+// `--hold-removed <file>` is osxphotos' cleanup command, run once per file the
+// mirror would delete. Same rule: no UI, do the one thing, exit.
+if CommandLine.arguments.contains("--hold-removed") {
+    RemovedPhotos.runHoldAndExit(arguments: CommandLine.arguments)
+}
+
+// Everything past here is the menubar app, and there must only be one.
+SingleInstance.claim()
+
+KeptApp.main()

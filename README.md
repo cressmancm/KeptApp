@@ -1,0 +1,71 @@
+# Kept
+
+A macOS menubar app that copies your whole Photos library to a folder you choose, every night, and tells you when it hasn't.
+
+The backup is ordinary files in date folders (`2024/03/01/IMG_1234.HEIC`), so you can open it in the Finder without Kept. It works with a folder on a NAS, an external drive, or another disk.
+
+## What it does
+
+- **Nightly, weekly or manual backups.** After the first one, only new and changed photos are copied.
+- **Catches up on missed nights.** If the Mac was asleep or on battery, Kept backs up when it wakes or is plugged in. A failed backup is retried an hour later, up to twice.
+- **Keeps deleted photos for a while.** A photo deleted from your library moves to `Removed from Photos` in the backup and is deleted after 30, 90 or 365 days.
+- **Warns you if backups stop.** A daily check runs even when Kept isn't open, and posts a notification if the last good backup is older than you allow.
+- **Explains problems in plain words.** "Couldn't reach nas.local at 2:04 AM. Kept will try again when it's back."
+- **Removes itself cleanly.** Settings → Advanced → Remove Kept… takes its login item, daily check, settings, history and logs with it, and never touches your backup.
+
+Nothing leaves your Mac and your network: no accounts, no cloud, no analytics.
+
+## Requirements
+
+- macOS 27 or later, on Apple silicon
+- Full Disk Access for Kept, which you turn on during setup
+- A backup folder with room for your library
+
+## Building from source
+
+There's no signed download yet, so build it yourself. You need Xcode with Swift 6.4.
+
+```bash
+cd app
+./make-cert.sh       # once: a self-signed "Kept Dev" signing certificate
+./bundle-python.sh   # once: the Python and osxphotos that ship inside the app
+./build.sh           # builds, signs, installs to /Applications and launches
+```
+
+The self-signed certificate keeps the app's signature the same from build to build, so Full Disk Access only has to be turned on once.
+
+Run the tests with:
+
+```bash
+cd app
+swift test
+```
+
+`release.sh` builds a notarized release with a Developer ID certificate.
+
+## How it works
+
+Kept is a SwiftUI menubar app that drives [osxphotos](https://github.com/RhetTbull/osxphotos), bundled with its own Python, to export the library. Kept handles everything around the export:
+
+- **Scheduling and catch-up:** wakes, retries, and the rule against unattended backups on battery.
+- **The network drive:** reconnects a NAS share, including one that's stuck.
+- **Deleted photos:** moves them aside instead of deleting them, then expires them.
+- **The interface:** the menubar panel, setup and settings.
+- **Safety checks:** refusing home and system folders as the backup folder, sealing the saved folder setting, never following links inside the backup, and running osxphotos in an isolated environment.
+
+| Folder | What's in it |
+|---|---|
+| `app/Sources/Kept` | The app |
+| `app/Tests/KeptTests` | Unit tests, including some that run Kept's real arguments through osxphotos |
+| `app/*.sh` | Certificate, Python bundling, build and release scripts |
+| `app/python-requirements.lock` | Every Python package, pinned with hashes |
+
+## Credits
+
+- [osxphotos](https://github.com/RhetTbull/osxphotos) by Rhet Turnbull does the exporting.
+- Python comes from [python-build-standalone](https://github.com/astral-sh/python-build-standalone).
+- Every build writes the licenses of everything bundled into `LICENSES.txt` inside the app.
+
+## How it was built
+
+Kept was built with [Claude Code](https://claude.com/claude-code). Each commit names the Claude model that worked on it in a `Co-Authored-By` line.
