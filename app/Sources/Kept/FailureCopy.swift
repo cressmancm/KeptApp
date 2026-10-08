@@ -51,8 +51,12 @@ enum FailureCopy {
         switch kind {
         case .volumeUnreachable:
             let when = time.map { " at \($0)" } ?? ""
+            // No time or trigger promised: a retry comes within the hour, or
+            // after two, at the next launch, wake or plug-in. Kept doesn't
+            // watch for the folder coming back, so "when it's back" was wrong.
             return .authored(
-                "Couldn't reach **\(name)**\(when). Kept will try again when it's back.")
+                "Couldn't reach **\(name)**\(when). Check that it's on and connected, "
+                    + "and Kept will try again.")
         case .diskFull:
             return .authored(
                 "**\(name)** has less than \(Config.minFreeGB) GB free. "

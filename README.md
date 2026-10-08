@@ -10,7 +10,7 @@ The backup is ordinary files in date folders (`2024/03/01/IMG_1234.HEIC`), so yo
 - **Catches up on missed nights.** If the Mac was asleep or on battery, Kept backs up when it wakes or is plugged in. A failed backup is retried an hour later, up to twice.
 - **Keeps deleted photos for a while.** A photo deleted from your library moves to `Removed from Photos` in the backup and is deleted after 30, 90 or 365 days.
 - **Warns you if backups stop.** A daily check runs even when Kept isn't open, and posts a notification if the last good backup is older than you allow.
-- **Explains problems in plain words.** "Couldn't reach nas.local at 2:04 AM. Kept will try again when it's back."
+- **Explains problems in plain words.** "Couldn't reach nas.local at 2:04 AM. Check that it's on and connected, and Kept will try again."
 - **Removes itself cleanly.** Settings → Advanced → Remove Kept… takes its login item, daily check, settings, history and logs with it, and never touches your backup.
 
 Nothing leaves your Mac and your network: no accounts, no cloud, no analytics.
@@ -69,3 +69,7 @@ Kept is a SwiftUI menubar app that drives [osxphotos](https://github.com/RhetTbu
 ## How it was built
 
 Kept was built with [Claude Code](https://claude.com/claude-code). Each commit names the Claude model that worked on it in a `Co-Authored-By` line.
+
+## License
+
+MIT. See [LICENSE](LICENSE). The bundled osxphotos, Python and their dependencies keep their own licenses, listed in `LICENSES.txt` inside the app.
