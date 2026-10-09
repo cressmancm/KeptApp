@@ -259,7 +259,7 @@ enum Uninstall {
             let status = SettingsSeal.deleteKey()
             guard status == errSecSuccess else {
                 throw UninstallError(
-                    message: "Couldn't remove “\(SettingsSeal.service)” from the login keychain "
+                    message: "Couldn't remove “\(SettingsSeal.service)” from the keychain "
                         + "(\(status))")
             }
 

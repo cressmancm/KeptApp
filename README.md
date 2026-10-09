@@ -47,7 +47,7 @@ cd app
 swift test
 ```
 
-`release.sh` builds a notarized release with a Developer ID certificate.
+`release.sh` builds a notarized release with a Developer ID certificate and its provisioning profile, saved as `app/Kept.provisionprofile`. The profile lets Kept keep the key that seals its folder setting in the data-protection keychain; `build.sh` uses it too when it's there, and without it falls back to the login keychain.
 
 ### On GitHub
 

@@ -315,6 +315,47 @@ final class SecurityTests: XCTestCase {
         XCTAssertNil(DestinationStore.load(defaults: defaults, sealingKey: nil))
     }
 
+    /// The test runner has no keychain entitlement, so it's on the login
+    /// keychain, and the migration below never reads the real keychain here.
+    func testAnUnentitledBuildUsesTheLoginKeychain() {
+        XCTAssertEqual(SettingsSeal.store, .login)
+        XCTAssertNil(SettingsSeal.legacyKeyForMigration())
+    }
+
+    /// Updating from 1.0 keeps the folder: a seal made with the login-keychain
+    /// key is made again with the new one, and the old key goes.
+    func testAFolderSealedBy10IsCarriedOver() {
+        let defaults = scratchDefaults()
+        let legacy = SymmetricKey(size: .bits256)
+        let fresh = SymmetricKey(size: .bits256)
+        DestinationStore.save(sample, defaults: defaults, sealingKey: legacy)
+        var migrated = 0
+        XCTAssertEqual(
+            DestinationStore.load(
+                defaults: defaults, sealingKey: SymmetricKey(size: .bits256),
+                legacyKey: legacy, resealingKey: fresh, legacyMigrated: { migrated += 1 }),
+            sample)
+        XCTAssertEqual(migrated, 1)
+        // Sealed with the new key now; the old one no longer opens it.
+        XCTAssertEqual(DestinationStore.load(defaults: defaults, sealingKey: fresh), sample)
+        XCTAssertNil(DestinationStore.load(
+            defaults: defaults, sealingKey: legacy, legacyKey: nil, resealingKey: nil))
+    }
+
+    /// The carry-over is for a seal the old key made, nothing else.
+    func testTheCarryOverDoesNotAcceptAForgedSeal() throws {
+        let defaults = scratchDefaults()
+        DestinationStore.save(sample, defaults: defaults, sealingKey: SymmetricKey(size: .bits256))
+        let hostile = Destination(path: "/Users/Shared/loot", isNetwork: false)
+        defaults.set(try JSONEncoder().encode(hostile), forKey: DestinationStore.key)
+        var migrated = 0
+        XCTAssertNil(DestinationStore.load(
+            defaults: defaults, sealingKey: SymmetricKey(size: .bits256),
+            legacyKey: SymmetricKey(size: .bits256), resealingKey: SymmetricKey(size: .bits256),
+            legacyMigrated: { migrated += 1 }))
+        XCTAssertEqual(migrated, 0)
+    }
+
     // MARK: - Round 2: P4/P5 hardening
 
     /// Children get an allow-list: nothing a launcher chose survives except

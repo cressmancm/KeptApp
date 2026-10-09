@@ -191,7 +191,7 @@ final class BackupController {
     }
 
     func openNotificationSettings() {
-        let id = Bundle.main.bundleIdentifier ?? "com.chip.Kept"
+        let id = Bundle.main.bundleIdentifier ?? "com.chipcressman.Kept"
         guard let url = URL(
             string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)")
         else { return }
@@ -711,7 +711,7 @@ final class BackupController {
         }
     }
 
-    static let stalenessLabel = "com.chip.Kept.staleness"
+    static let stalenessLabel = "com.chipcressman.Kept.staleness"
 
     static var stalenessPlistURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -723,7 +723,7 @@ final class BackupController {
     /// Kept twice: the app, and a second "Kept" with a generic exec icon that
     /// was this job.
     static func stalenessPlist(
-        executable: String, bundleIdentifier: String = Bundle.main.bundleIdentifier ?? "com.chip.Kept"
+        executable: String, bundleIdentifier: String = Bundle.main.bundleIdentifier ?? "com.chipcressman.Kept"
     ) -> String {
         """
         <?xml version="1.0" encoding="UTF-8"?>

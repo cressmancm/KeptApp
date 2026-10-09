@@ -7,11 +7,11 @@ import XCTest
 @MainActor
 final class UninstallTests: XCTestCase {
     private let bundle = URL(filePath: "/Applications/Kept.app")
-    private let identifier = "com.chip.Kept"
+    private let identifier = "com.chipcressman.Kept"
     private let appSupport = URL(filePath: "/Users/test/Library/Application Support/Kept")
     private let logs = URL(filePath: "/Users/test/Library/Logs/Kept")
     private let plist = URL(
-        filePath: "/Users/test/Library/LaunchAgents/com.chip.Kept.staleness.plist")
+        filePath: "/Users/test/Library/LaunchAgents/com.chipcressman.Kept.staleness.plist")
 
     private func plan(
         bundleURL: URL? = nil, identifier: String? = nil, keepExportDatabase: Bool = false,
@@ -23,7 +23,7 @@ final class UninstallTests: XCTestCase {
             appSupport: appSupport,
             logs: logs,
             launchAgentPlist: plist,
-            launchAgentLabel: "com.chip.Kept.staleness",
+            launchAgentLabel: "com.chipcressman.Kept.staleness",
             keepExportDatabase: keepExportDatabase,
             removeApp: removeApp)
     }
@@ -137,7 +137,7 @@ final class UninstallTests: XCTestCase {
         let targets = Uninstall.plan(
             bundleURL: nil, bundleIdentifier: nil,
             appSupport: appSupport, logs: logs,
-            launchAgentPlist: plist, launchAgentLabel: "com.chip.Kept.staleness"
+            launchAgentPlist: plist, launchAgentLabel: "com.chipcressman.Kept.staleness"
         ).map(\.target)
 
         XCTAssertFalse(targets.contains { if case .appBundle = $0 { true } else { false } })

@@ -290,14 +290,31 @@ enum DestinationStore {
     static let key = "destination"
     static let sealKey = "destinationSeal"
 
+    /// The last three are the one-time move from the login keychain, where a
+    /// build without the provisioning profile keeps its key: a folder sealed
+    /// with that key is sealed again with a fresh data-protection key, and
+    /// the old key deleted, so moving to a release build doesn't make anyone
+    /// choose their folder again. It trusts the login-keychain key once, which
+    /// is no more than that build did. Only evaluated when the current key
+    /// doesn't verify.
     static func load(
-        defaults: UserDefaults = .standard, sealingKey: SymmetricKey? = SettingsSeal.key()
+        defaults: UserDefaults = .standard,
+        sealingKey: SymmetricKey? = SettingsSeal.key(),
+        legacyKey: @autoclosure () -> SymmetricKey? = SettingsSeal.legacyKeyForMigration(),
+        resealingKey: @autoclosure () -> SymmetricKey? = SettingsSeal.rotatedKey(),
+        legacyMigrated: () -> Void = SettingsSeal.deleteLegacyKey
     ) -> Destination? {
         guard let data = defaults.data(forKey: key),
-            let seal = defaults.data(forKey: sealKey),
-            let sealingKey,
-            SettingsSeal.verify(data, seal: seal, key: sealingKey)
+            let seal = defaults.data(forKey: sealKey)
         else { return nil }
+        if let sealingKey, SettingsSeal.verify(data, seal: seal, key: sealingKey) {
+            return try? JSONDecoder().decode(Destination.self, from: data)
+        }
+        guard let legacy = legacyKey(), SettingsSeal.verify(data, seal: seal, key: legacy),
+            let fresh = resealingKey()
+        else { return nil }
+        defaults.set(SettingsSeal.seal(data, key: fresh), forKey: sealKey)
+        legacyMigrated()
         return try? JSONDecoder().decode(Destination.self, from: data)
     }
 

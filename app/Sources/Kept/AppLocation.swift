@@ -129,9 +129,11 @@ enum AppLocation {
 
     /// Asks every copy of Kept running from `bundle` to quit, then insists.
     private static func quitCopies(at bundle: URL) {
-        let running = NSRunningApplication.runningApplications(
-            withBundleIdentifier: Bundle.main.bundleIdentifier ?? "com.chip.Kept"
-        ).filter { $0.bundleURL?.standardizedFileURL == bundle.standardizedFileURL }
+        let running = [
+            Bundle.main.bundleIdentifier ?? "com.chipcressman.Kept", IdentityMigration.oldIdentifier,
+        ]
+        .flatMap(NSRunningApplication.runningApplications(withBundleIdentifier:))
+        .filter { $0.bundleURL?.standardizedFileURL == bundle.standardizedFileURL }
         // By pid, as in SingleInstance: `isTerminated` isn't kept up to date
         // this early in launch.
         func isGone(_ app: NSRunningApplication) -> Bool {

@@ -14,8 +14,14 @@
 #   ./make-cert.sh
 #
 # KEPT_SIGN_IDENTITY picks an identity by name and never falls back. release.sh
-# sets it, sets KEPT_RELEASE=1 for Apple's secure timestamp, and passes
-# --no-install.
+# sets it, sets KEPT_RELEASE=1 for Apple's secure timestamp and
+# KEPT_REQUIRE_PROFILE=1, and passes --no-install.
+#
+# With a Developer ID, put its provisioning profile at app/Kept.provisionprofile
+# (or name one in KEPT_PROVISIONING_PROFILE). It's what lets Kept keep the key
+# that seals the backup folder setting in the data-protection keychain, where
+# nothing but Kept's team can plant or read it (see SettingsSeal.swift).
+# Without one, Kept uses the login keychain.
 #
 # Options:
 #   --force       install even while a backup is running
@@ -120,6 +126,49 @@ else
     echo "!!  TCC grants will need re-consent after every rebuild until you run make-cert.sh."
 fi
 
+# The keychain entitlement. A Developer ID app may only claim its application
+# identifier when a provisioning profile that grants it is embedded; claimed
+# without one, macOS refuses to launch the app. So the profile's own values are
+# used, after checking they're for this app and this team, and the build
+# fails rather than ship an app that won't open.
+PROFILE="${KEPT_PROVISIONING_PROFILE:-$APP_DIR/Kept.provisionprofile}"
+APP_ENTITLEMENTS="$APP_DIR/app-entitlements.plist"
+rm -f "$BUNDLE/Contents/embedded.provisionprofile"
+if [[ "$SIGN_ID" == "Developer ID Application:"* && -f "$PROFILE" ]]; then
+    PROFILE_TMP="$(mktemp -d -t kept-profile)"
+    trap 'rm -rf "$PROFILE_TMP"' EXIT
+    PROFILE_PLIST="$PROFILE_TMP/profile.plist"
+    APP_ENTITLEMENTS="$PROFILE_TMP/app-entitlements.plist"
+    security cms -D -i "$PROFILE" > "$PROFILE_PLIST"
+    APP_ID="$(plutil -extract 'Entitlements.com\.apple\.application-identifier' raw -o - "$PROFILE_PLIST")"
+    TEAM_ID="$(plutil -extract 'Entitlements.com\.apple\.developer\.team-identifier' raw -o - "$PROFILE_PLIST")"
+    EXPIRES="$(plutil -extract ExpirationDate raw -o - "$PROFILE_PLIST")"
+    BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$BUNDLE/Contents/Info.plist")"
+    if [[ "$APP_ID" != "$TEAM_ID.$BUNDLE_ID" ]]; then
+        echo "!!  $PROFILE is for $APP_ID, not $TEAM_ID.$BUNDLE_ID."
+        exit 1
+    fi
+    if [[ "$SIGN_ID" != *"($TEAM_ID)" ]]; then
+        echo "!!  $PROFILE is for team $TEAM_ID, but the signing identity is '$SIGN_ID'."
+        exit 1
+    fi
+    if [[ "$EXPIRES" < "$(date -u +%Y-%m-%dT%H:%M:%SZ)" ]]; then
+        echo "!!  $PROFILE expired on $EXPIRES. Download a new one."
+        exit 1
+    fi
+    cp "$PROFILE" "$BUNDLE/Contents/embedded.provisionprofile"
+    cp "$APP_DIR/app-entitlements.plist" "$APP_ENTITLEMENTS"
+    plutil -insert 'com\.apple\.application-identifier' -string "$APP_ID" "$APP_ENTITLEMENTS"
+    plutil -insert 'com\.apple\.developer\.team-identifier' -string "$TEAM_ID" "$APP_ENTITLEMENTS"
+    echo "==> Keychain: data protection ($APP_ID, profile expires ${EXPIRES%%T*})"
+elif [[ "${KEPT_REQUIRE_PROFILE:-0}" == 1 ]]; then
+    echo "!!  No provisioning profile at $PROFILE. A release needs one: without it,"
+    echo "!!  the key that seals the backup folder stays in the login keychain."
+    exit 1
+else
+    echo "==> Keychain: login (no provisioning profile)"
+fi
+
 # Notarization requires a secure timestamp from Apple on every signature.
 # Local builds skip it, Developer ID ones included: it is a network round trip
 # per file, the bundled Python has hundreds of them, and a build that isn't
@@ -153,7 +202,7 @@ find "$BUNDLE/Contents/Resources/python/bin" -type f -perm +111 -print0 \
     | xargs -0 codesign --force --options runtime "${TIMESTAMP[@]}" \
         "${PY_ENTITLEMENTS[@]}" --sign "$SIGN_ID"
 codesign --force --options runtime "${TIMESTAMP[@]}" \
-    --entitlements "$APP_DIR/app-entitlements.plist" --sign "$SIGN_ID" "$BUNDLE"
+    --entitlements "$APP_ENTITLEMENTS" --sign "$SIGN_ID" "$BUNDLE"
 
 echo "==> Verifying signature and hardened-runtime flag"
 codesign --verify --deep --strict "$BUNDLE"

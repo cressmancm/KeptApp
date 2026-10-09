@@ -18,3 +18,6 @@ xcuserdata/
 # Design handoff from the design tool: kept locally, not published. Its
 # support.js is the tool's generated runtime, which isn't ours to license.
 design_handoff_kept_onboarding_and_polish/
+
+# Provisioning profiles: each maintainer downloads their own
+*.provisionprofile

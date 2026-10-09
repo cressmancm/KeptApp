@@ -18,9 +18,10 @@ enum SingleInstance {
     static func claim() {
         guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return }
         let me = ProcessInfo.processInfo.processIdentifier
-        let others = NSRunningApplication.runningApplications(
-            withBundleIdentifier: bundleIdentifier
-        ).filter { $0.processIdentifier != me && !isGone($0.processIdentifier) }
+        // A copy still running under the old identifier is another Kept too.
+        let others = [bundleIdentifier, IdentityMigration.oldIdentifier]
+            .flatMap(NSRunningApplication.runningApplications(withBundleIdentifier:))
+            .filter { $0.processIdentifier != me && !isGone($0.processIdentifier) }
         guard !others.isEmpty else { return }
 
         // A backup in flight belongs to whichever copy started it. Leave it be.

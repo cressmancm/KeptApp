@@ -10,13 +10,13 @@ final class StalenessAgentTests: XCTestCase {
     func testAgentPlistParsesAndNamesTheApp() throws {
         let xml = BackupController.stalenessPlist(
             executable: "/Applications/Kept & Co.app/Contents/MacOS/Kept",
-            bundleIdentifier: "com.chip.Kept")
+            bundleIdentifier: "com.chipcressman.Kept")
         let plist = try XCTUnwrap(
             PropertyListSerialization.propertyList(from: Data(xml.utf8), format: nil)
                 as? [String: Any])
 
         XCTAssertEqual(plist["Label"] as? String, BackupController.stalenessLabel)
-        XCTAssertEqual(plist["AssociatedBundleIdentifiers"] as? [String], ["com.chip.Kept"])
+        XCTAssertEqual(plist["AssociatedBundleIdentifiers"] as? [String], ["com.chipcressman.Kept"])
         XCTAssertEqual(
             plist["ProgramArguments"] as? [String],
             ["/Applications/Kept & Co.app/Contents/MacOS/Kept", "--staleness-check"])

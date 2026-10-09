@@ -27,4 +27,8 @@ if AppLocation.isTranslocated {
 // Everything past here is the menubar app, and there must only be one.
 SingleInstance.claim()
 
+// Kept's first identifier was com.chip.Kept. Carried over once, after any copy
+// still running under it has quit and before anything reads a preference.
+IdentityMigration.runIfNeeded()
+
 KeptApp.main()

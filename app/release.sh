@@ -4,6 +4,10 @@
 # Needs, once:
 #   - a "Developer ID Application" certificate in the keychain
 #     (Xcode → Settings → Accounts → Manage Certificates → + → Developer ID Application)
+#   - its provisioning profile, saved as app/Kept.provisionprofile
+#     (developer.apple.com → Profiles → + → Developer ID, for the App ID
+#     com.chipcressman.Kept), so the release keeps its settings key in the
+#     data-protection keychain
 #   - notarization credentials saved under a keychain profile:
 #       xcrun notarytool store-credentials "kept-notary" \
 #           --apple-id YOUR_APPLE_ID --team-id YOUR_TEAM_ID
@@ -35,7 +39,8 @@ if ! xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1; the
 fi
 
 echo "==> Building with '$IDENTITY'"
-KEPT_RELEASE=1 KEPT_SIGN_IDENTITY="$IDENTITY" "$APP_DIR/build.sh" --no-install
+KEPT_RELEASE=1 KEPT_REQUIRE_PROFILE=1 KEPT_SIGN_IDENTITY="$IDENTITY" \
+    "$APP_DIR/build.sh" --no-install
 
 PLIST="$BUNDLE/Contents/Info.plist"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$PLIST")"

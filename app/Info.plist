@@ -6,14 +6,15 @@
     <string>Kept</string>
     <key>CFBundleDisplayName</key>
     <string>Kept</string>
-    <!-- Renamed from com.chip.PhotoBackup on 2026-08-13. The TCC grants
-         (Photos, app data, network volumes), the login-item registration, and
-         the UserDefaults domain are all keyed to this identifier, so the
-         change cost one round of re-consent and a migration of
-         ~/Library/Preferences/com.chip.*.plist. Changing it again costs the
-         same; there is no reason left to. -->
+    <!-- com.chip.PhotoBackup until 2026-08-13, then com.chip.Kept, then on
+         2026-10-09 com.chipcressman.Kept: a domain the developer owns, chosen
+         before the identifier was registered with Apple. The TCC grants, the
+         login item, the daily check, the keychain key and the UserDefaults
+         domain are all keyed to it, so each change costs a round of setup
+         (IdentityMigration.swift carries the rest over). Registered now, so
+         there is no reason left to change it. -->
     <key>CFBundleIdentifier</key>
-    <string>com.chip.Kept</string>
+    <string>com.chipcressman.Kept</string>
     <key>CFBundleExecutable</key>
     <string>Kept</string>
     <!-- Built from icon/kept-default.svg by make-icon.sh. LSUIElement means no
