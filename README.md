@@ -45,6 +45,13 @@ swift test
 
 `release.sh` builds a notarized release with a Developer ID certificate.
 
+### On GitHub
+
+Two workflows run on GitHub's `xcode-27` runner, the one with Swift 6.4 and the macOS 27 SDK:
+
+- **Tests** builds the app and runs `swift test` on every push and pull request. The few tests that need an installed Kept.app skip there.
+- **CodeQL** scans the Swift, the Python scripts and the workflow files for security problems on every push and pull request, and every Monday. Results are under the repository's Security tab.
+
 ## How it works
 
 Kept is a SwiftUI menubar app that drives [osxphotos](https://github.com/RhetTbull/osxphotos), bundled with its own Python, to export the library. Kept handles everything around the export:
