@@ -1,0 +1,32 @@
+# Builds Kept and runs its tests on every push and pull request. Same runner
+# as CodeQL's Swift job, for the same reason: Swift 6.4 and the macOS 27 SDK.
+# Tests that need an installed Kept.app (the ones that run osxphotos) skip
+# here, as they're written to.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build
+        run: swift build --package-path app
+
+      - name: Test
+        run: swift test --package-path app

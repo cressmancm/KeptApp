@@ -1,5 +1,7 @@
 # Kept
 
+[![Tests](https://github.com/cressmancm/KeptApp/actions/workflows/tests.yml/badge.svg)](https://github.com/cressmancm/KeptApp/actions/workflows/tests.yml)
+
 A macOS menubar app that copies your whole Photos library to a folder you choose, every night, and tells you when it hasn't.
 
 The backup is ordinary files in date folders (`2024/03/01/IMG_1234.HEIC`), so you can open it in the Finder without Kept. It works with a folder on a NAS, an external drive, or another disk.
