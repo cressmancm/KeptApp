@@ -25,7 +25,7 @@ Nothing leaves your Mac and your network: no accounts, no cloud, no analytics.
 
 ## Download
 
-Get **Kept-1.0.zip** from the [latest release](https://github.com/cressmancm/KeptApp/releases/latest), unzip it, drag Kept to Applications and open it. It's signed with a Developer ID and notarized by Apple, so it opens without warnings. Setup then walks you through turning on Full Disk Access and choosing a backup folder.
+Get **Kept-1.1.zip** from the [latest release](https://github.com/cressmancm/KeptApp/releases/latest), unzip it, drag Kept to Applications and open it. It's signed with a Developer ID and notarized by Apple, so it opens without warnings. Setup then walks you through turning on Full Disk Access and choosing a backup folder.
 
 ## Building from source
 
