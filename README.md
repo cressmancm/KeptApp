@@ -23,9 +23,13 @@ Nothing leaves your Mac and your network: no accounts, no cloud, no analytics.
 - Full Disk Access for Kept, which you turn on during setup
 - A backup folder with room for your library
 
+## Download
+
+Get **Kept-1.0.zip** from the [latest release](https://github.com/cressmancm/KeptApp/releases/latest), unzip it, drag Kept to Applications and open it. It's signed with a Developer ID and notarized by Apple, so it opens without warnings. Setup then walks you through turning on Full Disk Access and choosing a backup folder.
+
 ## Building from source
 
-There's no signed download yet, so build it yourself. You need Xcode 26 or later.
+You need Xcode 26 or later.
 
 ```bash
 cd app
