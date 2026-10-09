@@ -29,12 +29,12 @@ There's no signed download yet, so build it yourself. You need Xcode 26 or later
 
 ```bash
 cd app
-./make-cert.sh       # once: a self-signed "Kept Dev" signing certificate
+./make-cert.sh       # once, if you don't have a Developer ID: a self-signed signing certificate
 ./bundle-python.sh   # once: the Python and osxphotos that ship inside the app
 ./build.sh           # builds, signs, installs to /Applications and launches
 ```
 
-The self-signed certificate keeps the app's signature the same from build to build, so Full Disk Access only has to be turned on once.
+`build.sh` signs with your Developer ID Application certificate if one is in your keychain, and otherwise with the self-signed "Kept Dev" one from `make-cert.sh`. Either way the signature stays the same from build to build, so Full Disk Access only has to be turned on once. Local builds don't need notarizing: macOS only checks that on apps downloaded from the internet.
 
 Run the tests with:
 

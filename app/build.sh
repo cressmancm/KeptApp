@@ -1,13 +1,21 @@
 #!/bin/zsh
 # build.sh — build, bundle, sign, and install Kept.app.
 #
-# Signing uses the self-signed "Kept Dev" identity so the TCC grants
-# survive rebuilds (an ad-hoc signature would change every build and
-# force a re-grant). Create it once with:
+# Signs with the first "Developer ID Application" identity in the keychain,
+# so a local build carries the same identity as a release: Full Disk Access
+# and the keychain item that seals the backup folder carry over between the
+# two, and nothing has to be granted again when you switch. A local build is
+# never notarized and doesn't need to be: macOS only checks notarization on
+# files downloaded from the internet.
+#
+# Without a Developer ID it falls back to the self-signed "Kept Dev" identity,
+# which keeps TCC grants stable across rebuilds (ad-hoc signing would change
+# every build and force a re-grant). Create it once with:
 #   ./make-cert.sh
 #
-# Release builds sign with a Developer ID instead: release.sh sets
-# KEPT_SIGN_IDENTITY and passes --no-install.
+# KEPT_SIGN_IDENTITY picks an identity by name and never falls back. release.sh
+# sets it, sets KEPT_RELEASE=1 for Apple's secure timestamp, and passes
+# --no-install.
 #
 # Options:
 #   --force       install even while a backup is running
@@ -15,7 +23,9 @@
 set -euo pipefail
 
 APP_DIR="${0:A:h}"
-IDENTITY="${KEPT_SIGN_IDENTITY:-Kept Dev}"
+DEVELOPER_ID="$(security find-identity -v -p codesigning \
+    | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"' || true)"
+IDENTITY="${KEPT_SIGN_IDENTITY:-${DEVELOPER_ID:-Kept Dev}}"
 BUNDLE="$APP_DIR/.build/Kept.app"
 INSTALL_TO="/Applications/Kept.app"
 LOCK_FILE="$HOME/Library/Application Support/Kept/.backup.pid"
@@ -111,10 +121,11 @@ else
 fi
 
 # Notarization requires a secure timestamp from Apple on every signature.
-# Local builds skip it: it is a network round trip per file, and the bundled
-# Python has hundreds of them.
+# Local builds skip it, Developer ID ones included: it is a network round trip
+# per file, the bundled Python has hundreds of them, and a build that isn't
+# being notarized gains nothing from it. release.sh asks for it.
 TIMESTAMP=(--timestamp=none)
-if [[ "$SIGN_ID" == "Developer ID Application:"* ]]; then
+if [[ "${KEPT_RELEASE:-0}" == 1 ]]; then
     TIMESTAMP=(--timestamp)
 fi
 

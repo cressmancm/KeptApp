@@ -35,7 +35,7 @@ if ! xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1; the
 fi
 
 echo "==> Building with '$IDENTITY'"
-KEPT_SIGN_IDENTITY="$IDENTITY" "$APP_DIR/build.sh" --no-install
+KEPT_RELEASE=1 KEPT_SIGN_IDENTITY="$IDENTITY" "$APP_DIR/build.sh" --no-install
 
 PLIST="$BUNDLE/Contents/Info.plist"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$PLIST")"
