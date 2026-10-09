@@ -53,9 +53,9 @@ fi
 echo "==> swift build -c release"
 swift build -c release
 
-# Apple silicon only. macOS 27, the minimum, doesn't run on Intel Macs, and
-# the bundled Python is arm64 — so a build that came out any other way is a
-# broken build, and should stop here rather than ship.
+# Apple silicon only. macOS 26, the minimum, still runs on Intel Macs, but the
+# bundled Python is arm64 — so a build that came out any other way is a broken
+# build, and should stop here rather than ship.
 ARCHS="$(lipo -archs "$APP_DIR/.build/release/Kept")"
 if [[ "$ARCHS" != "arm64" ]]; then
     echo "!!  Expected an arm64-only binary, got: $ARCHS"

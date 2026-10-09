@@ -1,5 +1,5 @@
-# Builds Kept and runs its tests on every push and pull request. Same runner
-# as CodeQL's Swift job, for the same reason: Swift 6.4 and the macOS 27 SDK.
+# Builds Kept and runs its tests on every push and pull request, on macOS 26,
+# Kept's minimum, so a test run also checks Kept still builds and works there.
 # Tests that need an installed Kept.app (the ones that run osxphotos) skip
 # here, as they're written to.
 name: Tests
@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: xcode-27
+    runs-on: macos-26
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

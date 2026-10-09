@@ -27,10 +27,11 @@
     <string>1.0</string>
     <key>CFBundleVersion</key>
     <string>1</string>
-    <!-- macOS 27 and later. That also makes Kept Apple silicon only: macOS 26
-         was the last release for Intel Macs, and the bundled Python is arm64. -->
+    <!-- macOS 26 and later, Apple silicon only. macOS 26 still runs on Intel
+         Macs, but the bundled Python is arm64, so build.sh refuses any other
+         architecture and Intel Macs can't run Kept. -->
     <key>LSMinimumSystemVersion</key>
-    <string>27.0</string>
+    <string>26.0</string>
     <!-- Menubar-only: no Dock icon, no app switcher entry -->
     <key>LSUIElement</key>
     <true/>

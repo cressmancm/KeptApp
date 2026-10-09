@@ -1,7 +1,6 @@
-# CodeQL, set up by hand rather than through GitHub's default setup, because
-# default setup builds Swift on macos-latest. Kept needs Swift 6.4 and the
-# macOS 27 SDK, which only the xcode-27 image has (a preview image as of
-# 2026-10). Python has no build step and runs on Ubuntu.
+# CodeQL, set up by hand rather than through GitHub's default setup, so the
+# Swift build can run with SwiftPM's sandbox off (see the Build step) and on a
+# pinned runner. Python has no build step and runs on Ubuntu.
 name: CodeQL
 
 on:
@@ -28,7 +27,7 @@ jobs:
       matrix:
         include:
           - language: swift
-            runner: xcode-27
+            runner: macos-26
             build-mode: manual
           - language: python
             runner: ubuntu-latest
