@@ -138,10 +138,13 @@ actor BackupEngine {
             record.outcome = .failed
             record.message = message
             record.failureKind = (error as? BackupError)?.kind ?? .setupFailed
-            // Same behavior as the script: surface the log immediately. Not for
-            // missing library access, where the panel says exactly what to do
-            // and the log has nothing more to add.
-            if record.failureKind != .libraryAccess {
+            // A backup the user started opens its log at once. Not an
+            // unattended one: a Mac away from its NAS fails every retry, and
+            // each one put a log window and the failure sound in front of
+            // whoever was using it. The panel and the notification say what
+            // happened, and the log is a click away. Not for missing library
+            // access either, where the panel says exactly what to do.
+            if trigger == .manual, record.failureKind != .libraryAccess {
                 let logURL = runLog.url
                 Task { @MainActor in NSWorkspace.shared.open(logURL) }
             }
@@ -193,11 +196,15 @@ actor BackupEngine {
     // MARK: - Destination readiness
 
     /// Local destination: the folder must exist (an unplugged disk fails
-    /// loudly). Network destination: mount-with-recovery, below.
+    /// loudly). Network destination: mount-with-recovery, below. Either way,
+    /// the volume must be the one that was chosen.
     private func ensureDestinationReady(_ dest: Destination, _ runLog: RunLog) async throws {
-        // Re-checked here, not just at selection time: the destination is read
-        // back from UserDefaults on every run, and --cleanup is unrecoverable.
-        guard !Destination.isUnsafeMirrorRoot(path: dest.path) else {
+        // Re-checked here, not just at selection time: whatever is in the
+        // folder and isn't from the library gets moved aside and, later,
+        // deleted.
+        guard !Destination.isUnsafeMirrorRoot(path: dest.path),
+            Destination.refusal(path: dest.path) == nil
+        else {
             throw BackupError(
                 "“\(dest.displayName)” isn't a safe backup folder. "
                     + "Choose a different one in Settings.",
@@ -205,15 +212,20 @@ actor BackupEngine {
         }
         if dest.isNetwork {
             try await ensureMount(dest, runLog)
-        } else {
-            var isDir: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: dest.path, isDirectory: &isDir),
-                isDir.boolValue
-            else {
-                throw BackupError(
-                    "Backup folder \(dest.path) is not available (disk unplugged or folder deleted?)",
-                    kind: .volumeUnreachable)
-            }
+        }
+        // On a share too, once it's mounted: a folder renamed or moved on the
+        // NAS used to surface as "Couldn't check free space".
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: dest.path, isDirectory: &isDir),
+            isDir.boolValue
+        else {
+            throw BackupError(
+                "Backup folder \(dest.path) is not available (disk unplugged or folder deleted?)",
+                kind: .volumeUnreachable)
+        }
+        if let mismatch = dest.volumeMismatch() {
+            runLog.log("Refusing to back up: \(mismatch)")
+            throw BackupError(mismatch, kind: .setupFailed)
         }
     }
 
@@ -244,15 +256,6 @@ actor BackupEngine {
                 "Network folder \(dest.path) is unreachable; automatic remounting is only supported for SMB shares",
                 kind: .volumeUnreachable)
         }
-        // The URL is replayed into AppleScript below. It arrives from
-        // UserDefaults, which anything running as this user can write, so it is
-        // re-validated on every use rather than trusted from capture time.
-        guard Destination.isWellFormedSMBURL(smbURL) else {
-            throw BackupError(
-                "Refusing to mount a malformed share URL; re-select the backup folder",
-                kind: .volumeUnreachable)
-        }
-
         if await isMounted(mountPoint) {
             if await mountIsHealthy(mountPoint, runLog) { return }
             runLog.log("Share is mounted but stale; force-unmounting.")
@@ -264,6 +267,13 @@ actor BackupEngine {
             try? await Task.sleep(for: .seconds(3))
         }
 
+        // Checked only now, when the URL is about to be used: a share that is
+        // already mounted and healthy needs no URL at all.
+        guard Destination.isWellFormedSMBURL(smbURL) else {
+            throw BackupError(
+                "Refusing to mount a malformed share URL; re-select the backup folder",
+                kind: .volumeUnreachable)
+        }
         runLog.log("Mounting \(smbURL)")
         // `mount volume` reuses the credential saved in the Keychain when the
         // user first connected to the share in Finder.
@@ -305,15 +315,15 @@ actor BackupEngine {
 
     // MARK: - Free space
 
+    /// From statfs, which the panel already uses. This used to read the
+    /// fourth field of `df -g`, which shifts for a volume whose name has a
+    /// space in it. Gigabytes as df counts them (2^30 bytes).
     private func checkFreeSpace(_ dest: Destination, _ runLog: RunLog) async throws {
-        let df = await ShellCommand.run("/bin/df", ["-g", dest.path], timeout: 60)
-        let lines = df.stdout.split(separator: "\n")
-        let fields = lines.count >= 2
-            ? lines[1].split(separator: " ", omittingEmptySubsequences: true) : []
-        guard fields.count >= 4, let availGB = Int(fields[3]) else {
+        guard let stats = dest.volumeStats() else {
             throw BackupError(
                 "Couldn't check free space on “\(dest.displayName)”.", kind: .setupFailed)
         }
+        let availGB = Int(stats.freeBytes / 1_073_741_824)
         guard availGB >= Config.minFreeGB else {
             throw BackupError(
                 "Low free space on \(dest.path): \(availGB)GB available (need \(Config.minFreeGB)GB)",

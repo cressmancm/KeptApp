@@ -9,9 +9,11 @@ app/LICENSES.txt
 # Crash logs osxphotos writes into its working folder
 osxphotos_crash.log
 
-# macOS and local tool settings
+# macOS and local tool settings; Xcode writes .swiftpm/ when it opens the package
 .DS_Store
 .claude/settings.local.json
+.swiftpm/
+xcuserdata/
 
 # Design handoff from the design tool: kept locally, not published. Its
 # support.js is the tool's generated runtime, which isn't ours to license.

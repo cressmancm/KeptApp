@@ -172,10 +172,27 @@ private struct GeneralSettings: View {
                                 .foregroundStyle(.orange)
                         }
                     }
+
+                    if controller.notificationsAreOff {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label(
+                                "Notifications are off for Kept, so none of these can reach you.",
+                                systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: 330, alignment: .leading)
+                            Button("Turn On…") { controller.openNotificationSettings() }
+                                .controlSize(.small)
+                        }
+                    }
                 }
             }
         }
-        .onAppear { controller.refreshDestinationStats() }
+        .onAppear {
+            controller.refreshDestinationStats()
+            controller.refreshNotificationAuthorization()
+        }
     }
 
     private var destinationField: some View {

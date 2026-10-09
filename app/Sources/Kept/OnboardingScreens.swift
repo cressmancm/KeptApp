@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 // The onboarding screens. The flow around them — paging, the width, which
 // screen gets a dot footer — is in OnboardingView; the shapes they are built
@@ -459,9 +460,14 @@ struct DoneScreen: View {
     /// is Manually and there is no time to name.
     private var bodyText: String {
         let phrase = RunFormatting.firstBackupPhrase(controller.nextRun, cadence: controller.cadence)
+        // Done is what raises the notification prompt, so this says what it's
+        // for first. Left out when the choice is already made (a reinstall).
+        let notifications = controller.notificationAuthorization == .notDetermined
+            ? " Allow notifications when macOS asks, so Kept can warn you if backups stop."
+            : ""
         // Under Manually the phrase already ends by pointing at the menubar,
         // and there's no scheduled backup to "check on".
-        guard controller.cadence != .manual else { return phrase }
-        return phrase + " Check on it anytime from the menubar."
+        guard controller.cadence != .manual else { return phrase + notifications }
+        return phrase + " Check on it anytime from the menubar." + notifications
     }
 }

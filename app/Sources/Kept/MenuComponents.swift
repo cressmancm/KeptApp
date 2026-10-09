@@ -129,6 +129,9 @@ struct ThinProgressBar: View {
         }
         .frame(height: 6)
         .animation(.easeOut(duration: 0.2), value: fraction)
+        .accessibilityElement()
+        .accessibilityLabel("Backup progress")
+        .accessibilityValue("\(Int((max(0, min(1, fraction)) * 100).rounded())) percent")
     }
 }
 

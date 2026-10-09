@@ -103,6 +103,10 @@ final class Scheduler {
 
         let history = RunHistory.load()
         guard !Self.slotWasServiced(history, since: lastScheduled) else { return }
+        // The cap that automatic retries also count against: three tries a
+        // slot, then the failure waits for the next one or for the user.
+        guard Self.failedAttempts(history, since: lastScheduled) < Config.maxAttemptsPerSlot
+        else { return }
         if let lastAttempt = Self.lastCooldownAttempt(history),
             now.timeIntervalSince(lastAttempt) < Config.catchUpCooldownSecs {
             return
@@ -117,6 +121,24 @@ final class Scheduler {
     nonisolated static func lastCooldownAttempt(_ history: [RunRecord]) -> Date? {
         history.last(where: { $0.outcome != .skipped && $0.failureKind != .libraryAccess })?
             .start
+    }
+
+    /// Failed runs since `slot` that count toward its cap. A run stopped for
+    /// library access isn't one: it never reached the backup folder, and
+    /// turning access back on should start the backup.
+    nonisolated static func failedAttempts(_ history: [RunRecord], since slot: Date) -> Int {
+        history.filter {
+            $0.start >= slot && $0.outcome == .failed && $0.failureKind != .libraryAccess
+        }.count
+    }
+
+    /// Where the current slot's attempts are counted from: the last scheduled
+    /// time, or under Manually, the last backup the user started.
+    func attemptWindowStart(_ history: [RunRecord], now: Date = .now) -> Date? {
+        Self.lastFireDate(
+            before: now, cadence: cadence, weekday: weeklyWeekday,
+            hour: scheduledHour, minute: scheduledMinute)
+            ?? history.last(where: { $0.trigger == .manual })?.start
     }
 
     nonisolated static func slotWasServiced(

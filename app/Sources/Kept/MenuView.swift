@@ -37,7 +37,10 @@ struct MenuView: View {
             }
         }
         .frame(width: Metrics.panelWidth)
-        .onAppear { controller.refreshDestinationStats() }
+        .onAppear {
+            controller.refreshDestinationStats()
+            controller.refreshNotificationAuthorization()
+        }
     }
 }
 
@@ -137,6 +140,15 @@ private struct DestinationFacts: View {
                 symbol: "clock",
                 label: RunFormatting.nextRunPhrase(
                     controller.nextRun, cadence: controller.cadence, now: now))
+            // The panel is where "backed up" is read, so it's where a warning
+            // that can't arrive gets said. Settings says it too.
+            if controller.notificationsAreOff {
+                Button { controller.openNotificationSettings() } label: {
+                    FactRow(symbol: "bell.slash", label: "Notifications are off", value: "Turn On")
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 

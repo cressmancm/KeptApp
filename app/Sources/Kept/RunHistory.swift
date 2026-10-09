@@ -110,8 +110,13 @@ enum RunHistory {
         } else {
             records.append(record)
         }
-        if records.count > Config.historyLimit {
-            records.removeFirst(records.count - Config.historyLimit)
+        // Oldest first, but never the latest success: it's what the panel,
+        // the failed panel and the daily check measure from, and losing it to
+        // a run of failures or deferrals makes them all say no backup ever
+        // finished.
+        let lastSuccess = records.last(where: { $0.outcome == .success })?.id
+        while records.count > Config.historyLimit {
+            records.remove(at: records.first?.id == lastSuccess ? 1 : 0)
         }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601

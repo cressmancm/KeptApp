@@ -93,6 +93,10 @@ enum Config {
     /// column of red dots.
     static let maxFailureRetries = 2
 
+    /// Every attempt a slot gets, from any trigger: the first, plus the
+    /// retries. Catch-up on wake and plug-in counts against it too.
+    static let maxAttemptsPerSlot = 1 + maxFailureRetries
+
     /// Kill an export that has produced no output at all for this long.
     ///
     /// Not a cap on how long a run may take: the 6.5-hour run of 2026-07-30 was

@@ -83,8 +83,21 @@ final class BackupController {
     private var accessProbeTask: Task<Void, Never>?
     private var powerObserver: (source: CFRunLoopSource, box: AnyObject)?
     private var retryTask: Task<Void, Never>?
-    /// Reset by a new scheduled slot or any success, so the cap is per-night.
-    private var failureRetriesUsed = 0
+    /// The power source at the last change, so only a move onto mains power
+    /// counts as one. macOS reports every change in charge level too.
+    private var wasOnAC = PowerSource.isOnAC
+
+    /// What macOS allows for Kept's notifications. nil until read, and always
+    /// outside an app bundle.
+    var notificationAuthorization: UNAuthorizationStatus?
+
+    /// True when a warning Kept is set to send can't arrive: the user denied
+    /// the prompt, or turned Kept off in System Settings since. The Settings
+    /// checkboxes would otherwise go on promising warnings that never come.
+    var notificationsAreOff: Bool {
+        notificationAuthorization == .denied
+            && (notifyOnFailure || notifyAlways || stalenessWarningEnabled)
+    }
 
     init() {
         Scheduler.registerDefaults()
@@ -139,6 +152,7 @@ final class BackupController {
         // under `swift run` without signing and installing a bundle first.
         OnboardingWindowController.showIfNeeded(controller: self)
         scheduler.start()
+        refreshNotificationAuthorization()
         await requestExplainedPermissions()
         refreshDestinationStats()
         // A scheduled time may have passed while the app wasn't running.
@@ -160,8 +174,28 @@ final class BackupController {
         if Bundle.main.bundleURL.pathExtension == "app" {
             _ = try? await UNUserNotificationCenter.current()
                 .requestAuthorization(options: [.alert, .sound])
+            refreshNotificationAuthorization()
         }
         await refreshPhotosAccess()
+    }
+
+    /// Reads the notification setting, which never prompts. Called at launch,
+    /// after the request, and whenever the panel or Settings opens, since the
+    /// user can change it in System Settings at any time.
+    func refreshNotificationAuthorization() {
+        guard Bundle.main.bundleURL.pathExtension == "app" else { return }
+        UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in
+            let status = settings.authorizationStatus
+            Task { @MainActor in self?.notificationAuthorization = status }
+        }
+    }
+
+    func openNotificationSettings() {
+        let id = Bundle.main.bundleIdentifier ?? "com.chip.Kept"
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)")
+        else { return }
+        NSWorkspace.shared.open(url)
     }
 
     /// Re-probes every 5s so granting access flips the panel without the user
@@ -222,16 +256,26 @@ final class BackupController {
 
         let picked = Destination.from(folder: url)
 
-        // --cleanup makes the destination a mirror, not a folder that also
-        // holds a backup. Pointed at a home or system folder it is a wipe, so
-        // those are refused outright rather than warned about.
+        // The destination is a mirror, not a folder that also holds a backup:
+        // anything else in it is moved aside and later deleted. Pointed at a
+        // home or system folder, a Photos library or a whole cloud drive, that
+        // loses someone's files, so those are refused outright rather than
+        // warned about.
         if Destination.isUnsafeMirrorRoot(path: picked.path, resolvingLinks: true) {
             unsafeMirrorRootAlert(for: picked.displayName).runModal()
             return
         }
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
+        if let refusal = Destination.refusal(path: picked.path, entries: entries)
+            ?? Destination.refusal(path: url.resolvingSymlinksInPath().path)
+        {
+            unsafeMirrorRootAlert(for: picked.displayName, refusal: refusal).runModal()
+            return
+        }
 
-        if picked != destination {
-            let entries = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
+        // By path: choosing the current folder again only refreshes what Kept
+        // knows about its disk, and isn't a new folder to warn about.
+        if picked.path != destination?.path {
             if !Destination.isEffectivelyEmpty(entries: entries) {
                 guard nonEmptyFolderAlert(for: picked).runModal() == .alertSecondButtonReturn
                 else { return }
@@ -247,33 +291,46 @@ final class BackupController {
         Task { await refreshPhotosAccess() }
     }
 
-    /// Refusal for a folder `--cleanup` would turn into a wipe. Built here
-    /// rather than inline so Settings → Advanced can show it without anyone
-    /// having to aim the picker at their home folder to find out what it says.
-    private func unsafeMirrorRootAlert(for name: String) -> NSAlert {
+    /// Refusal for a folder the mirror would empty out. Built here rather
+    /// than inline so Settings → Advanced can show it without anyone having
+    /// to aim the picker at their home folder to find out what it says.
+    private func unsafeMirrorRootAlert(
+        for name: String, refusal: Destination.Refusal? = nil
+    ) -> NSAlert {
         let alert = NSAlert()
         alert.messageText = "“\(name)” can't be the backup folder"
-        alert.informativeText = """
-            Kept removes anything in the backup folder that isn't from your \
-            library, so system and home folders aren't safe. Create a new \
-            folder for it.
-            """
+        alert.informativeText = switch refusal {
+        case nil:
+            "Kept removes anything in the backup folder that isn't from your "
+                + "library, so system and home folders aren't safe. Create a new "
+                + "folder for it."
+        case .insidePhotosLibrary:
+            "It's inside a Photos library. Choose a folder outside the library."
+        case .holdsPhotosLibrary:
+            "It has a Photos library in it, which Kept would move out of the "
+                + "folder. Create a new folder for the backup."
+        case .cloudFolder:
+            "Kept would move the files already in it, and the change would sync "
+                + "to your other devices. Create a new folder for the backup."
+        }
         alert.alertStyle = .critical
         alert.addButton(withTitle: "OK")
         return alert
     }
 
-    /// The "this folder is not empty" confirmation. Cancel is added first, so
-    /// "Use This Folder" is the second button — and, being last added, the
-    /// default. Reordering these means reworking the caller's return-code check.
+    /// The "this folder is not empty" confirmation. Cancel is added first,
+    /// which makes it the default button, so Return never accepts a folder
+    /// whose contents Kept will move. "Use This Folder" is the second button;
+    /// reordering these means reworking the caller's return-code check.
     private func nonEmptyFolderAlert(for picked: Destination) -> NSAlert {
         let alert = NSAlert()
         alert.messageText =
             "Use “\(picked.displayName)”\(hostClause(picked)) as your backup folder?"
         alert.informativeText = """
-            This folder isn't empty. Kept will delete anything in it that isn't \
-            from your library. Continue only if it's an old Kept backup or you \
-            don't need what's in it.
+            This folder isn't empty. Kept will move anything in it that isn't \
+            from your library to “\(RemovedPhotos.folderName)” and delete it after \
+            \(removedRetentionDays) days. Continue only if it's an old Kept backup \
+            or you don't need what's in it.
             """
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Cancel")
@@ -312,9 +369,6 @@ final class BackupController {
             deferForPower(trigger)
             return
         }
-        // A fresh scheduled slot: the previous night's retries don't count
-        // against tonight's.
-        if trigger == .scheduled { failureRetriesUsed = 0 }
 
         isRunning = true
         runStartedAt = .now
@@ -346,6 +400,12 @@ final class BackupController {
     /// Re-attempts a failed run after the cooldown, at most
     /// `Config.maxFailureRetries` times per scheduled slot.
     ///
+    /// Counted from the history, the same way catch-up counts, so the two
+    /// share one cap. An in-memory count only knew about the retries it had
+    /// scheduled itself: every wake and plug-in could start another attempt
+    /// on top, and a Mac on mains power away from its NAS failed about hourly
+    /// for as long as the share was gone.
+    ///
     /// A failed night used to sit untouched until something external happened —
     /// a wake, a launch, or a transition onto mains power. On 2026-08-07 the
     /// Mac was already plugged in and stayed awake, so none of those occurred
@@ -357,7 +417,10 @@ final class BackupController {
     /// see it.
     private func scheduleFailureRetry() {
         retryTask?.cancel()
-        guard failureRetriesUsed < Config.maxFailureRetries else {
+        let history = RunHistory.load()
+        guard let window = scheduler.attemptWindowStart(history),
+            Scheduler.failedAttempts(history, since: window) < Config.maxAttemptsPerSlot
+        else {
             retryTask = nil
             return
         }
@@ -366,14 +429,19 @@ final class BackupController {
             guard let self, !Task.isCancelled else { return }
             // Anything that resolved the failure in the meantime wins.
             guard case .failed = self.status else { return }
-            self.failureRetriesUsed += 1
             self.startBackup(.retry)
         }
     }
 
     /// Records the deferral and shows it, so a week on battery reads as a week
     /// of grey "nothing happened" dots rather than a silent gap.
+    ///
+    /// Once per wait, not once per wake: every lid-open on battery used to
+    /// add another record, and history keeps 50, so a week or so away from
+    /// power pushed the last good backup out of it. The panel, the failed
+    /// panel and the daily check then all said no backup had ever finished.
     private func deferForPower(_ trigger: BackupTrigger) {
+        guard status != .waitingForPower else { return }
         // The real trigger, not a hardcoded .scheduled: a deferral at 17:25 that
         // claims to be the 2 AM job makes the history lie about what happened.
         var record = RunRecord(trigger: trigger, start: .now)
@@ -387,7 +455,9 @@ final class BackupController {
 
     /// Power arrived. Start whatever the battery rule held back.
     private func powerSourceChanged() {
-        guard PowerSource.isOnAC else { return }
+        let onAC = PowerSource.isOnAC
+        defer { wasOnAC = onAC }
+        guard onAC, !wasOnAC else { return }
         if status == .waitingForPower {
             startBackup(.catchUp)
         } else {
@@ -444,7 +514,6 @@ final class BackupController {
                 record.failureKind ?? .setupFailed, record.message ?? "Backup failed")
             scheduleFailureRetry()
         case .success:
-            failureRetriesUsed = 0
             retryTask?.cancel()
             retryTask = nil
             status = destination == nil ? .needsDestination : .idle
@@ -962,17 +1031,19 @@ final class BackupController {
 
     /// The alerts `chooseDestination` raises, shown on demand.
     ///
-    /// Both are refusals or warnings about a folder the user just picked, so
-    /// there is no way to see either one without pointing Kept at a folder you
+    /// All are refusals or warnings about a folder the user just picked, so
+    /// there is no way to see one without pointing Kept at a folder you
     /// would rather it didn't touch.
     enum PreviewDialog: String, CaseIterable, Identifiable, Sendable {
-        case unsafeRoot, nonEmptyFolder
+        case unsafeRoot, photosLibrary, cloudFolder, nonEmptyFolder
 
         var id: String { rawValue }
 
         var label: String {
             switch self {
             case .unsafeRoot: "Unsafe Folder"
+            case .photosLibrary: "Holds a Library"
+            case .cloudFolder: "Cloud Folder"
             case .nonEmptyFolder: "Folder Not Empty"
             }
         }
@@ -988,6 +1059,10 @@ final class BackupController {
             unsafeMirrorRootAlert(for: FileManager.default
                 .homeDirectoryForCurrentUser.appending(path: "Pictures").lastPathComponent)
                 .runModal()
+        case .photosLibrary:
+            unsafeMirrorRootAlert(for: "Photos SSD", refusal: .holdsPhotosLibrary).runModal()
+        case .cloudFolder:
+            unsafeMirrorRootAlert(for: "iCloud Drive", refusal: .cloudFolder).runModal()
         case .nonEmptyFolder:
             _ = nonEmptyFolderAlert(for: sample).runModal()
         }

@@ -184,7 +184,18 @@ enum RemovedPhotos {
     /// anchors it to the top of the backup folder). Gitignore syntax, so
     /// "#recycle" is escaped: unescaped, a line starting with "#" is a comment,
     /// and the recycle bin would have been moved into the holding folder.
-    static let keepRules = ["\\#recycle", "@eaDir", "**/@eaDir", "/\(folderName)"]
+    ///
+    /// Then what a disk keeps for itself, which only shows up when the backup
+    /// folder is a disk's root. osxphotos skips hidden files but not the
+    /// files inside hidden folders, so the disk's trash (.Trashes), Spotlight
+    /// index and the like would be moved too; nothing Kept exports is hidden.
+    /// The Windows equivalents cover a disk shared with a PC. And any Photos
+    /// library, at any depth: picking a folder that holds one is refused, but
+    /// one deeper down would otherwise be moved out file by file.
+    static let keepRules = [
+        "\\#recycle", "@eaDir", "**/@eaDir", "/\(folderName)",
+        ".*", "*.photoslibrary", "/System Volume Information", "/$RECYCLE.BIN",
+    ]
 
     /// Makes sure the backup folder's `.osxphotos_keep` holds `keepRules`,
     /// keeping any other lines already in it.

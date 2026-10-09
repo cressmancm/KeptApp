@@ -50,10 +50,13 @@ struct KeptApp: App {
             //
             // The glyph is pre-rendered to a single Image because MenuBarExtra
             // renders only Image and Text in its label — see MenuBarGlyph.
+            // Labelled, or VoiceOver reads the menu bar item as "image".
             if let image = MenuBarGlyph.image(symbol: controller.menuBarSymbol) {
                 Image(nsImage: image)
+                    .accessibilityLabel("Kept")
             } else {
                 Image(systemName: controller.menuBarSymbol)
+                    .accessibilityLabel("Kept")
             }
         }
         .menuBarExtraStyle(.window)

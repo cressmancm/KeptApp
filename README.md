@@ -64,7 +64,7 @@ Kept is a SwiftUI menubar app that drives [osxphotos](https://github.com/RhetTbu
 - **The network drive:** reconnects a NAS share, including one that's stuck.
 - **Deleted photos:** moves them aside instead of deleting them, then expires them.
 - **The interface:** the menubar panel, setup and settings.
-- **Safety checks:** refusing home and system folders as the backup folder, sealing the saved folder setting, never following links inside the backup, and running osxphotos in an isolated environment.
+- **Safety checks:** refusing home, system and cloud folders, and any folder holding a Photos library, as the backup folder; sealing the saved folder setting and checking the disk or share is still the one you chose; never following links inside the backup; and running osxphotos in an isolated environment.
 
 | Folder | What's in it |
 |---|---|

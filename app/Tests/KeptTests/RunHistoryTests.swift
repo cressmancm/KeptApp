@@ -92,4 +92,24 @@ final class RunHistoryTests: XCTestCase {
         run.outcome = nil
         XCTAssertEqual(RunFormatting.rowDetail(run), "Running…")
     }
+
+    /// A long run of failures or battery deferrals must not push the last
+    /// good backup out of the history: everything that says how old the
+    /// backup is measures from it.
+    func testTrimmingNeverDropsTheLatestSuccess() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        var success = RunRecord(trigger: .scheduled, start: start)
+        success.outcome = .success
+        RunHistory.upsert(success, to: url)
+        for index in 1...(Config.historyLimit + 10) {
+            var skipped = RunRecord(trigger: .catchUp, start: start + Double(index) * 3600)
+            skipped.outcome = .skipped
+            RunHistory.upsert(skipped, to: url)
+        }
+        let loaded = RunHistory.load(from: url)
+        XCTAssertEqual(loaded.count, Config.historyLimit)
+        XCTAssertEqual(loaded.first?.id, success.id)
+        XCTAssertEqual(loaded.filter { $0.outcome == .success }.count, 1)
+        XCTAssertEqual(loaded.map(\.start), loaded.map(\.start).sorted())
+    }
 }

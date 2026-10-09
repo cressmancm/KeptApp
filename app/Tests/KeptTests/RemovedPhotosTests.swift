@@ -177,7 +177,7 @@ final class RemovedPhotosTests: XCTestCase {
 
     /// A hand-edited preference can't turn retention off or make it forever.
     func testRetentionIsAlwaysOneOfTheChoices() {
-        let defaults = UserDefaults(suiteName: "KeptRemovedPhotosTests-\(UUID())")!
+        let defaults = SecurityTests.scratchDefaults(named: "KeptRemovedPhotosTests", for: self)
         XCTAssertEqual(RemovedPhotos.retentionDays(defaults), 90)
         defaults.set(365, forKey: Preferences.removedRetentionDays)
         XCTAssertEqual(RemovedPhotos.retentionDays(defaults), 365)

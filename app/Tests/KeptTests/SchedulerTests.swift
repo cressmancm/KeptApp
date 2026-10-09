@@ -149,4 +149,24 @@ final class SchedulerTests: XCTestCase {
             date(2026, 10, 5, 2, 0))
         XCTAssertNil(Scheduler.lastCooldownAttempt([blocked, deferred]))
     }
+
+    /// Retries and catch-up share one cap of three tries a slot. Access
+    /// failures, deferrals and anything before the slot don't count.
+    func testFailedAttemptsCountOnlyRealFailuresInTheSlot() {
+        let slot = date(2026, 10, 9, 2, 0)
+        var blocked = run(date(2026, 10, 9, 2, 1), .failed)
+        blocked.failureKind = .libraryAccess
+        let history = [
+            run(date(2026, 10, 8, 2, 0), .failed),
+            run(date(2026, 10, 9, 2, 0), .failed),
+            blocked,
+            run(date(2026, 10, 9, 3, 0), .skipped),
+            run(date(2026, 10, 9, 4, 0), .failed),
+        ]
+        XCTAssertEqual(Scheduler.failedAttempts(history, since: slot), 2)
+        XCTAssertLessThan(
+            Scheduler.failedAttempts(history, since: slot), Config.maxAttemptsPerSlot)
+        let capped = history + [run(date(2026, 10, 9, 5, 0), .failed)]
+        XCTAssertEqual(Scheduler.failedAttempts(capped, since: slot), Config.maxAttemptsPerSlot)
+    }
 }
