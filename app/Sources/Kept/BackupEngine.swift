@@ -284,16 +284,17 @@ actor BackupEngine {
         // which `do shell script` turns into arbitrary code running as a child
         // of this app, inheriting its Photos and network-volume TCC grants.
         let mountResult = await ShellCommand.run(
-            "/usr/bin/osascript",
-            [
-                "-e", "on run argv",
-                "-e", "mount volume (item 1 of argv)",
-                "-e", "end run",
-                "--", smbURL,
-            ],
-            timeout: 120)
+            "/usr/bin/osascript", Self.mountScriptArguments(smbURL), timeout: 120)
         if !mountResult.stderr.isEmpty {
             runLog.appendRaw(mountResult.stderr.trimmingCharacters(in: .newlines))
+        }
+        // Said plainly rather than left to time out as "Couldn't reach": the
+        // share is fine, and waiting a minute for it won't help.
+        if Self.isAutomationDenied(mountResult.stderr) {
+            throw BackupError(
+                "Kept isn't allowed to reconnect “\(dest.displayName)”. Turn on Kept in "
+                    + "System Settings → Privacy & Security → Automation.",
+                kind: .setupFailed)
         }
 
         var waited = 0
@@ -311,6 +312,23 @@ actor BackupEngine {
                 "Mounted \(smbURL) but it does not respond to reads", kind: .volumeUnreachable)
         }
         runLog.log("Mounted and healthy after \(waited)s.")
+    }
+
+    /// The reconnect, as `osascript` arguments. Shared with the check the
+    /// controller runs when a share is chosen, so both raise the same prompt.
+    static func mountScriptArguments(_ smbURL: String) -> [String] {
+        [
+            "-e", "on run argv",
+            "-e", "mount volume (item 1 of argv)",
+            "-e", "end run",
+            "--", smbURL,
+        ]
+    }
+
+    /// osascript's "Not authorized to send Apple events" (-1743): Automation
+    /// is off for Kept, or its prompt was answered Don't Allow.
+    static func isAutomationDenied(_ stderr: String) -> Bool {
+        stderr.contains("(-1743)")
     }
 
     // MARK: - Free space

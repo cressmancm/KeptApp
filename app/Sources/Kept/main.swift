@@ -17,6 +17,13 @@ if CommandLine.arguments.contains("--hold-removed") {
     RemovedPhotos.runHoldAndExit(arguments: CommandLine.arguments)
 }
 
+// Opened straight from a download, macOS runs Kept from a temporary copy whose
+// path would go into the login item and the daily check. Move first, before
+// this copy claims anything or quits the installed one.
+if AppLocation.isTranslocated {
+    MainActor.assumeIsolated { AppLocation.offerMoveAndExit() }
+}
+
 // Everything past here is the menubar app, and there must only be one.
 SingleInstance.claim()
 

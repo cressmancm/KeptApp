@@ -289,6 +289,48 @@ final class BackupController {
         scheduler.rearm()
         refreshDestinationStats()
         Task { await refreshPhotosAccess() }
+        if picked.isNetwork, let smbURL = picked.smbURL {
+            Task { await askToReconnectWhileAttended(smbURL, name: picked.displayName) }
+        }
+    }
+
+    /// Runs the reconnect once, now, while someone is at the Mac.
+    ///
+    /// Reconnecting a share is an Apple Event, and macOS asks before an app
+    /// may send one. Left to the first night the share has dropped, that
+    /// prompt would appear at 2 AM with nobody to answer it, and the backup
+    /// would fail. The share is mounted (it was just picked), so reconnecting
+    /// changes nothing; it only raises the prompt, if there is one, here.
+    private func askToReconnectWhileAttended(_ smbURL: String, name: String) async {
+        guard Bundle.main.bundleURL.pathExtension == "app",
+            Destination.isWellFormedSMBURL(smbURL)
+        else { return }
+        let result = await ShellCommand.run(
+            "/usr/bin/osascript", BackupEngine.mountScriptArguments(smbURL), timeout: 120)
+        guard BackupEngine.isAutomationDenied(result.stderr) else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        if cantReconnectAlert(for: name).runModal() == .alertFirstButtonReturn {
+            openAutomationSettings()
+        }
+    }
+
+    private func cantReconnectAlert(for name: String) -> NSAlert {
+        let alert = NSAlert()
+        alert.messageText = "Kept can't reconnect “\(name)” on its own"
+        alert.informativeText =
+            "If it disconnects, backups will fail until you connect it in the Finder. "
+            + "Turn on Kept in Automation to fix this."
+        alert.addButton(withTitle: "Open Automation Settings")
+        alert.addButton(withTitle: "Not Now")
+        return alert
+    }
+
+    func openAutomationSettings() {
+        if let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")
+        {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     /// Refusal for a folder the mirror would empty out. Built here rather
@@ -1035,7 +1077,7 @@ final class BackupController {
     /// there is no way to see one without pointing Kept at a folder you
     /// would rather it didn't touch.
     enum PreviewDialog: String, CaseIterable, Identifiable, Sendable {
-        case unsafeRoot, photosLibrary, cloudFolder, nonEmptyFolder
+        case unsafeRoot, photosLibrary, cloudFolder, nonEmptyFolder, cantReconnect
 
         var id: String { rawValue }
 
@@ -1045,6 +1087,7 @@ final class BackupController {
             case .photosLibrary: "Holds a Library"
             case .cloudFolder: "Cloud Folder"
             case .nonEmptyFolder: "Folder Not Empty"
+            case .cantReconnect: "Can't Reconnect"
             }
         }
     }
@@ -1065,6 +1108,10 @@ final class BackupController {
             unsafeMirrorRootAlert(for: "iCloud Drive", refusal: .cloudFolder).runModal()
         case .nonEmptyFolder:
             _ = nonEmptyFolderAlert(for: sample).runModal()
+        case .cantReconnect:
+            if cantReconnectAlert(for: sample.displayName).runModal() == .alertFirstButtonReturn {
+                openAutomationSettings()
+            }
         }
     }
 
