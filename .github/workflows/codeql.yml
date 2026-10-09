@@ -47,12 +47,15 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
 
       # The app only: signing, the bundled Python and installing are build.sh's
-      # job and CodeQL needs none of them.
+      # job and CodeQL needs none of them. --disable-sandbox because SwiftPM
+      # evaluates Package.swift under /usr/bin/sandbox-exec, which won't start
+      # with CodeQL's build tracer injected ("Bad CPU type in executable"). The
+      # runner is a throwaway machine, so the sandbox protects nothing here.
       - name: Build
         if: matrix.build-mode == 'manual'
         run: |
           swift --version
-          swift build --package-path app
+          swift build --package-path app --disable-sandbox
 
       - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
         with:
