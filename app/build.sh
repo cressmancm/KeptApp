@@ -272,7 +272,12 @@ fi
 # before the install so a library-validation failure stops the build instead of
 # surfacing during the unattended run at 2 AM.
 echo "==> Smoke test: bundled osxphotos under the hardened runtime"
-"$BUNDLE/Contents/Resources/python/bin/python3" -I -B -m osxphotos --version | head -1
+# Captured, then trimmed to its first line, rather than piped to `head -1`:
+# osxphotos prints four lines, head exits after one, and osxphotos then got
+# SIGPIPE writing the rest, which pipefail reported as a failed build. Only
+# sometimes, depending on timing; CI hit it on 2026-10-10.
+SMOKE="$("$BUNDLE/Contents/Resources/python/bin/python3" -I -B -m osxphotos --version)"
+echo "${SMOKE%%$'\n'*}"
 # The smoke test runs the signed interpreter, so it is also the check that
 # running it leaves the seal intact.
 codesign --verify --deep --strict "$BUNDLE"
