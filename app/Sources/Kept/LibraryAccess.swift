@@ -23,14 +23,16 @@ enum LibraryAccess {
     /// Shared by the controller (setup, the paused panel) and the engine, which
     /// runs it before every backup: without it, a backup with Full Disk Access
     /// off failed inside osxphotos and was reported as "stopped partway".
-    static func canRead() async -> Bool? {
+    /// `stop` ends the probe early when the backup it's part of is stopped.
+    static func canRead(stop: StopSignal? = nil) async -> Bool? {
         // Libraries can live outside ~/Pictures; no probe target means no
         // verdict — a real run will surface any permission problem loudly.
         guard FileManager.default.fileExists(atPath: Config.photosLibraryProbePath) else {
             return nil
         }
         let probe = await ShellCommand.run(
-            "/usr/bin/head", ["-c", "1", Config.photosLibraryProbePath], timeout: 300)
+            "/usr/bin/head", ["-c", "1", Config.photosLibraryProbePath], timeout: 300,
+            stop: stop)
         return probe.status == 0
     }
 }

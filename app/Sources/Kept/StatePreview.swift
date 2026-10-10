@@ -1,3 +1,4 @@
+#if KEPT_REVIEW_TOOLS
 import Foundation
 
 /// One reviewable state of the app, selectable from Settings → Advanced.
@@ -332,3 +333,4 @@ enum StatePreview {
         "Exporting IMG_5355.HEIC (A1B2C3D4-0000-0000-0000-000000000006.heic) (12481/46920)",
     ]
 }
+#endif

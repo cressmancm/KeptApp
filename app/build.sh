@@ -14,8 +14,8 @@
 #   ./make-cert.sh
 #
 # KEPT_SIGN_IDENTITY picks an identity by name and never falls back. release.sh
-# sets it, sets KEPT_RELEASE=1 for Apple's secure timestamp and
-# KEPT_REQUIRE_PROFILE=1, and passes --no-install.
+# sets it, sets KEPT_RELEASE=1 for Apple's secure timestamp and to leave out the
+# review tools, sets KEPT_REQUIRE_PROFILE=1, and passes --no-install.
 #
 # With a Developer ID, put its provisioning profile at app/Kept.provisionprofile
 # (or name one in KEPT_PROVISIONING_PROFILE). It's what lets Kept keep the key
@@ -66,8 +66,15 @@ if [[ $INSTALL -eq 1 && $FORCE -eq 0 && -f "$LOCK_FILE" ]]; then
     fi
 fi
 
-echo "==> swift build -c release"
-swift build -c release
+# The review tools in Settings → Advanced (forced panel states, sample alerts
+# and notifications) are for whoever is working on Kept: in every local
+# build, never in a release.
+SWIFT_FLAGS=()
+if [[ "${KEPT_RELEASE:-0}" != 1 ]]; then
+    SWIFT_FLAGS=(-Xswiftc -DKEPT_REVIEW_TOOLS)
+fi
+echo "==> swift build -c release ${SWIFT_FLAGS[*]}"
+swift build -c release "${SWIFT_FLAGS[@]}"
 
 # Apple silicon only. macOS 26, the minimum, still runs on Intel Macs, but the
 # bundled Python is arm64 — so a build that came out any other way is a broken

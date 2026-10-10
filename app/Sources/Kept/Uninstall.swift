@@ -120,8 +120,8 @@ enum Uninstall {
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
         appSupport: URL = Config.appSupportDir,
         logs: URL = Config.logDir,
-        launchAgentPlist: URL = BackupController.stalenessPlistURL,
-        launchAgentLabel: String = BackupController.stalenessLabel,
+        launchAgentPlist: URL = StalenessAgent.plistURL,
+        launchAgentLabel: String = StalenessAgent.label,
         keepExportDatabase: Bool = false,
         removeApp: Bool = canRemoveApp()
     ) -> [Item] {

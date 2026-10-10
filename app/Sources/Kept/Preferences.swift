@@ -51,6 +51,15 @@ enum Preferences {
     /// "Removed from Photos" folder. One of RemovedPhotos.retentionChoices.
     static let removedRetentionDays = "removedRetentionDays"
 
+    /// When the first-run flow was seen through. Scheduled times before it
+    /// don't count as missed (Scheduler.fireCatchUpIfMissed).
+    static let setupCompletedAt = "setupCompletedAt"
+
+    /// When the daily check was first set up, so "hasn't run yet" can be told
+    /// from "hasn't had the chance". The app bundle's date used to stand in,
+    /// and a release built days before it was installed warned at once.
+    static let stalenessAgentInstalledAt = "stalenessAgentInstalledAt"
+
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
             notifyOnFailure: true,
@@ -67,7 +76,9 @@ enum Preferences {
         ])
     }
 
-    static var currentCadence: BackupCadence {
-        BackupCadence(rawValue: UserDefaults.standard.string(forKey: cadence) ?? "") ?? .nightly
+    static var currentCadence: BackupCadence { cadence(in: .standard) }
+
+    static func cadence(in defaults: UserDefaults) -> BackupCadence {
+        BackupCadence(rawValue: defaults.string(forKey: cadence) ?? "") ?? .nightly
     }
 }

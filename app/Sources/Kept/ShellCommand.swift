@@ -12,12 +12,14 @@ enum ShellCommand {
     /// Runs an executable to completion, capturing output. If `timeout` elapses
     /// first, the process is SIGKILLed and `timedOut` is set — this is how a
     /// directory read on a zombie SMB mount (which hangs forever) gets bounded.
+    /// Firing `stop` SIGKILLs it too.
     @discardableResult
     static func run(
         _ executable: String,
         _ arguments: [String] = [],
         timeout: TimeInterval? = nil,
-        environment: [String: String]? = nil
+        environment: [String: String]? = nil,
+        stop: StopSignal? = nil
     ) async -> CommandResult {
         let process = Process()
         process.executableURL = URL(filePath: executable)
@@ -57,10 +59,14 @@ enum ShellCommand {
             }
         }
 
+        let pid = process.processIdentifier
+        let stopToken = stop?.onStop { kill(pid, SIGKILL) }
+
         async let outData = collect(outPipe.fileHandleForReading)
         async let errData = collect(errPipe.fileHandleForReading)
         for await _ in exited {}
         watchdog?.cancel()
+        stop?.remove(stopToken)
 
         return CommandResult(
             status: process.terminationStatus,

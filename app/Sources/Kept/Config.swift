@@ -65,6 +65,16 @@ enum Config {
     static let minFreeGB = 20
     static let mountTimeoutSecs = 60
     static let probeTimeoutSecs: TimeInterval = 15
+    /// The second, longer probe of a share that didn't answer the first, before
+    /// it's force-unmounted. A NAS spinning its disks up after a night asleep
+    /// can take this long.
+    static let slowProbeTimeoutSecs: TimeInterval = 60
+    /// How long a file-system call on the backup folder (an existence check,
+    /// free space) may take before the folder counts as not responding.
+    static let volumeCallTimeoutSecs: TimeInterval = 30
+    /// What a wake gives the network before anything tries the share, and
+    /// what a scheduled backup waits when it fires late, after a sleep.
+    static let wakeGraceSecs: TimeInterval = 30
     static let exportAttempts = 2
     static let logRetentionDays = 30
     /// Runs kept in runs.json. Everything that reads history looks at the

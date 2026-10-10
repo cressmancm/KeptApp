@@ -5,9 +5,10 @@ final class RunLog {
     let url: URL
     private let handle: FileHandle
 
-    init(at date: Date = .now) throws {
-        try FileManager.default.createDirectory(at: Config.logDir, withIntermediateDirectories: true)
-        url = Config.logDir.appending(path: "\(Self.fileStamp(date)).log")
+    /// `directory` is the logs folder; tests pass their own.
+    init(at date: Date = .now, in directory: URL = Config.logDir) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        url = directory.appending(path: "\(Self.fileStamp(date)).log")
         FileManager.default.createFile(atPath: url.path, contents: nil)
         handle = try FileHandle(forWritingTo: url)
         try handle.seekToEnd()

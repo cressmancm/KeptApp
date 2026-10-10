@@ -1,3 +1,4 @@
+#if KEPT_REVIEW_TOOLS
 import XCTest
 
 @testable import Kept
@@ -117,3 +118,4 @@ final class StatePreviewTests: XCTestCase {
         XCTAssertEqual(labels.count, PreviewScenario.allCases.count)
     }
 }
+#endif

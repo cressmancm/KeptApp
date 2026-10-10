@@ -12,12 +12,17 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "Kept",
-            path: "Sources/Kept"
+            path: "Sources/Kept",
+            // The review tools in Settings → Advanced (ReviewTools.swift).
+            // In debug builds here; build.sh adds them to local release
+            // builds, and leaves them out of what release.sh ships.
+            swiftSettings: [.define("KEPT_REVIEW_TOOLS", .when(configuration: .debug))]
         ),
         .testTarget(
             name: "KeptTests",
             dependencies: ["Kept"],
-            path: "Tests/KeptTests"
+            path: "Tests/KeptTests",
+            swiftSettings: [.define("KEPT_REVIEW_TOOLS", .when(configuration: .debug))]
         ),
     ]
 )

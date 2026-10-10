@@ -16,9 +16,11 @@ struct MenuView: View {
         // again, however many times the panel is reopened.
         TimelineView(.periodic(from: .now, by: 60)) { context in
             VStack(spacing: 0) {
+                #if KEPT_REVIEW_TOOLS
                 if let preview = controller.preview {
                     PreviewBanner(controller: controller, scenario: preview.scenario)
                 }
+                #endif
                 switch controller.displayStatus {
                 case .needsDestination:
                     FirstRunPanel(controller: controller)
@@ -44,6 +46,7 @@ struct MenuView: View {
     }
 }
 
+#if KEPT_REVIEW_TOOLS
 /// Says, on the panel itself, that none of what follows is true.
 ///
 /// The state preview in Settings → Advanced exists so every screen can be
@@ -75,6 +78,7 @@ private struct PreviewBanner: View {
         .background(Color.orange.opacity(0.14))
     }
 }
+#endif
 
 // MARK: - Healthy
 

@@ -78,7 +78,7 @@ private struct TabBody<Content: View>: View {
 // MARK: - General
 
 private struct GeneralSettings: View {
-    let controller: BackupController
+    @Bindable var controller: BackupController
 
     var body: some View {
         TabBody {
@@ -98,9 +98,7 @@ private struct GeneralSettings: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text("Keep in the backup for")
-                        Picker("", selection: Binding(
-                            get: { controller.removedRetentionDays },
-                            set: { controller.setRemovedRetentionDays($0) })) {
+                        Picker("", selection: $controller.removedRetentionDays) {
                             ForEach(RemovedPhotos.retentionChoices, id: \.self) { days in
                                 Text("\(days) days").tag(days)
                             }
@@ -120,22 +118,14 @@ private struct GeneralSettings: View {
 
             SettingsRow(label: "Options:") {
                 VStack(alignment: .leading, spacing: 9) {
-                    Toggle("Open at login", isOn: Binding(
-                        get: { controller.launchAtLogin },
-                        set: { controller.setLaunchAtLogin($0) }))
-                    Toggle("Notify me when a backup fails", isOn: Binding(
-                        get: { controller.notifyOnFailure },
-                        set: { controller.setNotifyOnFailure($0) }))
-                    Toggle("Notify me after every backup", isOn: Binding(
-                        get: { controller.notifyAlways },
-                        set: { controller.setNotifyAlways($0) }))
+                    Toggle("Open at login", isOn: $controller.openAtLogin)
+                    Toggle("Notify me when a backup fails", isOn: $controller.notifyOnFailure)
+                    Toggle("Notify me after every backup", isOn: $controller.notifyAlways)
 
                     VStack(alignment: .leading, spacing: 4) {
                         // The label is a whole sentence on its own; the interval
                         // sits on the line below rather than finishing it.
-                        Toggle("Warn me if backups stop", isOn: Binding(
-                            get: { controller.stalenessWarningEnabled },
-                            set: { controller.setStalenessWarningEnabled($0) }))
+                        Toggle("Warn me if backups stop", isOn: $controller.stalenessWarningEnabled)
                         // Interval on its own line, indented to align with the
                         // checkbox's text, so it can grow to "14 days" without
                         // pushing anything off the end of the row.
@@ -143,9 +133,7 @@ private struct GeneralSettings: View {
                             Text("After")
                                 .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
-                            Picker("", selection: Binding(
-                                get: { controller.stalenessDays },
-                                set: { controller.setStalenessDays($0) })) {
+                            Picker("", selection: $controller.stalenessDays) {
                                 ForEach([1, 2, 3, 5, 7, 14], id: \.self) { days in
                                     Text(days == 1 ? "1 day" : "\(days) days").tag(days)
                                 }
@@ -271,15 +259,13 @@ private struct GeneralSettings: View {
 // MARK: - Schedule
 
 private struct ScheduleSettings: View {
-    let controller: BackupController
+    @Bindable var controller: BackupController
 
     var body: some View {
         TabBody {
             SettingsRow(label: "Back up:") {
                 HStack(spacing: 10) {
-                    Picker("", selection: Binding(
-                        get: { controller.cadence },
-                        set: { controller.setCadence($0) })) {
+                    Picker("", selection: $controller.cadence) {
                         ForEach(BackupCadence.allCases, id: \.self) { cadence in
                             Text(cadence.label).tag(cadence)
                         }
@@ -289,9 +275,7 @@ private struct ScheduleSettings: View {
                     .fixedSize()
 
                     if controller.cadence == .weekly {
-                        Picker("", selection: Binding(
-                            get: { controller.weeklyWeekday },
-                            set: { controller.setWeeklyWeekday($0) })) {
+                        Picker("", selection: $controller.weeklyWeekday) {
                             ForEach(Array(weekdayNames.enumerated()), id: \.offset) { index, name in
                                 Text(name).tag(index + 1)
                             }
@@ -305,9 +289,7 @@ private struct ScheduleSettings: View {
             SettingsRow(label: "At:") {
                 HStack(spacing: 10) {
                     DatePicker(
-                        "", selection: Binding(
-                            get: { controller.scheduleTime },
-                            set: { controller.scheduleTime = $0 }),
+                        "", selection: $controller.scheduleTime,
                         displayedComponents: .hourAndMinute)
                         .labelsHidden()
                         .fixedSize()
@@ -320,9 +302,7 @@ private struct ScheduleSettings: View {
 
             SettingsRow(label: "") {
                 VStack(alignment: .leading, spacing: 2) {
-                    Toggle("Catch up on missed backups", isOn: Binding(
-                        get: { controller.catchUpEnabled },
-                        set: { controller.setCatchUpEnabled($0) }))
+                    Toggle("Catch up on missed backups", isOn: $controller.catchUpEnabled)
                     Text("If your Mac was asleep, back up when it wakes.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -350,26 +330,16 @@ private struct ScheduleSettings: View {
 // MARK: - Advanced
 
 private struct AdvancedSettings: View {
-    let controller: BackupController
-
-    /// Which onboarding screen the picker is aimed at. View state, not app
-    /// state: it selects what to open, and opening it changes nothing.
-    @State private var onboardingPage = 1
+    @Bindable var controller: BackupController
 
     /// The review tools (forced panel states, the menubar glyph, onboarding
     /// screens, sample warnings, alerts and notifications) are for whoever is
-    /// working on Kept, not for the people using it. They appear when Option is
+    /// working on Kept, not for the people using it. Only debug and local
+    /// builds have them (ReviewTools.swift). There, they appear when Option is
     /// held as this tab opens, and stay while anything they forced is still
     /// forced — hiding them then would strand a fake state with no way back
     /// to Live.
     @State private var showsReviewTools = false
-
-    private static let onboardingScreens = [
-        "1 · Welcome",
-        "2 · Full Disk Access",
-        "3 · Choose folder",
-        "4 · Done",
-    ]
 
     var body: some View {
         Group {
@@ -388,135 +358,21 @@ private struct AdvancedSettings: View {
             }
         }
         .onAppear {
+            #if KEPT_REVIEW_TOOLS
             showsReviewTools =
                 NSEvent.modifierFlags.contains(.option) || controller.hasAnyPreview
+            #endif
         }
     }
 
     private var tabContent: some View {
         TabBody {
+            #if KEPT_REVIEW_TOOLS
             // Review tools. See `showsReviewTools`.
             if showsReviewTools {
-                SettingsRow(label: "Panel state:") {
-                    scenarioPicker
-                    Text(previewNote)
-                        .font(.caption)
-                        .foregroundStyle(controller.isPreviewing ? Color.orange : Color.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: 330, alignment: .leading)
-                }
-
-                Divider()
-
-                SettingsRow(label: "Menubar glyph:") {
-                    // Forces the icon into each state so it can be checked
-                    // without unplugging the NAS or waiting for a backup to
-                    // fail. Separate from the panel picker above, which already
-                    // carries the icon with it — this one is for the two "needs
-                    // you" states that deliberately share a glyph.
-                    Picker("", selection: Binding(
-                        get: { controller.glyphPreview },
-                        set: { controller.glyphPreview = $0 })) {
-                        Text("Live").tag(BackupController.GlyphState?.none)
-                        Divider()
-                        ForEach(BackupController.GlyphState.allCases) { state in
-                            Text(state.label).tag(BackupController.GlyphState?.some(state))
-                        }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-
-                    Text(controller.glyphPreview == nil
-                        ? "Following the panel: \(controller.glyphState.label.lowercased())."
-                        : "Forced. Set back to Live when you're done.")
-                        .font(.caption)
-                        .foregroundStyle(controller.glyphPreview == nil
-                            ? Color.secondary : Color.orange)
-                }
-
-                Divider()
-
-                SettingsRow(label: "Onboarding:") {
-                    HStack(spacing: 8) {
-                        Picker("", selection: $onboardingPage) {
-                            ForEach(Array(Self.onboardingScreens.enumerated()), id: \.offset) {
-                                index, name in
-                                Text(name).tag(index + 1)
-                            }
-                        }
-                        .labelsHidden()
-                        .fixedSize()
-                        Button("Open Screen") {
-                            controller.showOnboarding(startingAt: onboardingPage)
-                        }
-                    }
-                    Button("Replay First Run") { controller.resetOnboarding() }
-                    Text("Open Screen shows one screen. Replay First Run starts setup over.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: 330, alignment: .leading)
-                }
-
-                Divider()
-
-                SettingsRow(label: "Warnings:") {
-                    Picker("", selection: Binding(
-                        get: { controller.stalenessWarningPreview },
-                        set: { controller.stalenessWarningPreview = $0 })) {
-                        Text("Live").tag(BackupController.StalenessWarningPreview?.none)
-                        Divider()
-                        ForEach(BackupController.StalenessWarningPreview.allCases) { warning in
-                            Text(warning.label)
-                                .tag(BackupController.StalenessWarningPreview?.some(warning))
-                        }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-
-                    Text(controller.stalenessWarningPreview == nil
-                        ? "Shows the warnings under \"Warn me if backups stop\" on the "
-                            + "General tab."
-                        : "Forced. The General tab isn't reporting a real problem.")
-                        .font(.caption)
-                        .foregroundStyle(controller.stalenessWarningPreview == nil
-                            ? Color.secondary : Color.orange)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: 330, alignment: .leading)
-                }
-
-                Divider()
-
-                SettingsRow(label: "Alerts:") {
-                    HStack(spacing: 8) {
-                        ForEach(BackupController.PreviewDialog.allCases) { dialog in
-                            Button(dialog.label) { controller.showPreviewDialog(dialog) }
-                        }
-                    }
-                    Text("Shows the folder picker's two warnings. Nothing is changed.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: 330, alignment: .leading)
-                }
-
-                Divider()
-
-                SettingsRow(label: "Notifications:") {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 8) { notificationButtons }
-                        VStack(alignment: .leading, spacing: 8) { notificationButtons }
-                    }
-                    Text("Sends a real notification, even if notifications are off on the "
-                        + "General tab.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: 330, alignment: .leading)
-                }
-
-                Divider()
+                ReviewToolsSection(controller: controller)
             }
+            #endif
 
             SettingsRow(label: "Diagnostics:") {
                 // Wraps onto a second line rather than clipping if the labels
@@ -558,51 +414,6 @@ private struct AdvancedSettings: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: 330, alignment: .leading)
             }
-        }
-    }
-
-    /// Live plus every scenario, grouped the way `PreviewScenario.Group` orders
-    /// them so seventeen entries don't arrive as one undifferentiated list.
-    private var scenarioPicker: some View {
-        HStack(spacing: 8) {
-            Picker("", selection: Binding(
-                get: { controller.preview?.scenario },
-                set: { controller.setPreview($0) })) {
-                Text("Live").tag(PreviewScenario?.none)
-                ForEach(PreviewScenario.Group.allCases) { group in
-                    Section(group.rawValue) {
-                        ForEach(PreviewScenario.allCases.filter { $0.group == group }) { scenario in
-                            Text(scenario.label).tag(PreviewScenario?.some(scenario))
-                        }
-                    }
-                }
-            }
-            .labelsHidden()
-            .fixedSize()
-
-            if controller.hasAnyPreview {
-                Button("Back to Live") { controller.clearPreview() }
-            }
-        }
-    }
-
-    /// Says what the selected state is for, and — while one is forced — what it
-    /// costs. A preview is dropped the moment a real backup starts or ends, and
-    /// the panel has to be opened by hand to be seen at all; both are worth
-    /// saying here rather than leaving to be discovered.
-    private var previewNote: String {
-        guard let preview = controller.preview else {
-            return "Shows the menubar panel in any state. Uses sample data; your history "
-                + "isn't touched."
-        }
-        return "\(preview.scenario.note) Click the menubar icon to see it. "
-            + "Ends when a backup runs or Kept quits."
-    }
-
-    @ViewBuilder
-    private var notificationButtons: some View {
-        ForEach(BackupController.PreviewNotification.allCases) { kind in
-            Button(kind.label) { controller.postPreviewNotification(kind) }
         }
     }
 
@@ -658,3 +469,184 @@ private struct AdvancedSettings: View {
         return text
     }
 }
+
+#if KEPT_REVIEW_TOOLS
+/// The review tools at the top of the Advanced tab. See `showsReviewTools`.
+private struct ReviewToolsSection: View {
+    @Bindable var controller: BackupController
+
+    /// Which onboarding screen the picker is aimed at. View state, not app
+    /// state: it selects what to open, and opening it changes nothing.
+    @State private var onboardingPage = 1
+
+    private static let onboardingScreens = [
+        "1 · Welcome",
+        "2 · Full Disk Access",
+        "3 · Choose folder",
+        "4 · Done",
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SettingsRow(label: "Panel state:") {
+                scenarioPicker
+                Text(previewNote)
+                    .font(.caption)
+                    .foregroundStyle(controller.isPreviewing ? Color.orange : Color.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 330, alignment: .leading)
+            }
+
+            Divider()
+
+            SettingsRow(label: "Menubar glyph:") {
+                // Forces the icon into each state so it can be checked
+                // without unplugging the NAS or waiting for a backup to
+                // fail. Separate from the panel picker above, which already
+                // carries the icon with it — this one is for the two "needs
+                // you" states that deliberately share a glyph.
+                Picker("", selection: $controller.glyphPreview) {
+                    Text("Live").tag(BackupController.GlyphState?.none)
+                    Divider()
+                    ForEach(BackupController.GlyphState.allCases) { state in
+                        Text(state.label).tag(BackupController.GlyphState?.some(state))
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+
+                Text(controller.glyphPreview == nil
+                    ? "Following the panel: \(controller.glyphState.label.lowercased())."
+                    : "Forced. Set back to Live when you're done.")
+                    .font(.caption)
+                    .foregroundStyle(controller.glyphPreview == nil
+                        ? Color.secondary : Color.orange)
+            }
+
+            Divider()
+
+            SettingsRow(label: "Onboarding:") {
+                HStack(spacing: 8) {
+                    Picker("", selection: $onboardingPage) {
+                        ForEach(Array(Self.onboardingScreens.enumerated()), id: \.offset) {
+                            index, name in
+                            Text(name).tag(index + 1)
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                    Button("Open Screen") {
+                        controller.showOnboarding(startingAt: onboardingPage)
+                    }
+                }
+                Button("Replay First Run") { controller.resetOnboarding() }
+                Text("Open Screen shows one screen. Replay First Run starts setup over.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 330, alignment: .leading)
+            }
+
+            Divider()
+
+            SettingsRow(label: "Warnings:") {
+                Picker("", selection: $controller.stalenessWarningPreview) {
+                    Text("Live").tag(BackupController.StalenessWarningPreview?.none)
+                    Divider()
+                    ForEach(BackupController.StalenessWarningPreview.allCases) { warning in
+                        Text(warning.label)
+                            .tag(BackupController.StalenessWarningPreview?.some(warning))
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+
+                Text(controller.stalenessWarningPreview == nil
+                    ? "Shows the warnings under \"Warn me if backups stop\" on the "
+                        + "General tab."
+                    : "Forced. The General tab isn't reporting a real problem.")
+                    .font(.caption)
+                    .foregroundStyle(controller.stalenessWarningPreview == nil
+                        ? Color.secondary : Color.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 330, alignment: .leading)
+            }
+
+            Divider()
+
+            SettingsRow(label: "Alerts:") {
+                HStack(spacing: 8) {
+                    ForEach(BackupController.PreviewDialog.allCases) { dialog in
+                        Button(dialog.label) { controller.showPreviewDialog(dialog) }
+                    }
+                }
+                Text("Shows the folder picker's two warnings. Nothing is changed.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 330, alignment: .leading)
+            }
+
+            Divider()
+
+            SettingsRow(label: "Notifications:") {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { notificationButtons }
+                    VStack(alignment: .leading, spacing: 8) { notificationButtons }
+                }
+                Text("Sends a real notification, even if notifications are off on the "
+                    + "General tab.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 330, alignment: .leading)
+            }
+
+            Divider()
+        }
+    }
+
+    /// Live plus every scenario, grouped the way `PreviewScenario.Group` orders
+    /// them so seventeen entries don't arrive as one undifferentiated list.
+    private var scenarioPicker: some View {
+        HStack(spacing: 8) {
+            Picker("", selection: $controller.previewScenario) {
+                Text("Live").tag(PreviewScenario?.none)
+                ForEach(PreviewScenario.Group.allCases) { group in
+                    Section(group.rawValue) {
+                        ForEach(PreviewScenario.allCases.filter { $0.group == group }) { scenario in
+                            Text(scenario.label).tag(PreviewScenario?.some(scenario))
+                        }
+                    }
+                }
+            }
+            .labelsHidden()
+            .fixedSize()
+
+            if controller.hasAnyPreview {
+                Button("Back to Live") { controller.clearPreview() }
+            }
+        }
+    }
+
+    /// Says what the selected state is for, and — while one is forced — what it
+    /// costs. A preview is dropped the moment a real backup starts or ends, and
+    /// the panel has to be opened by hand to be seen at all; both are worth
+    /// saying here rather than leaving to be discovered.
+    private var previewNote: String {
+        guard let preview = controller.preview else {
+            return "Shows the menubar panel in any state. Uses sample data; your history "
+                + "isn't touched."
+        }
+        return "\(preview.scenario.note) Click the menubar icon to see it. "
+            + "Ends when a backup runs or Kept quits."
+    }
+
+    @ViewBuilder
+    private var notificationButtons: some View {
+        ForEach(BackupController.PreviewNotification.allCases) { kind in
+            Button(kind.label) { controller.postPreviewNotification(kind) }
+        }
+    }
+}
+#endif

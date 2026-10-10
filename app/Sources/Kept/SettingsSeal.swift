@@ -48,13 +48,15 @@ enum SettingsSeal {
     /// The keychain key, created on first use. nil when the keychain can't be
     /// read — locked, or access denied — in which case nothing verifies, and
     /// the folder has to be chosen again rather than trusted unchecked.
-    static func key() -> SymmetricKey? {
-        if let existing = readKey(store) { return existing }
+    ///
+    /// `service` is the keychain item's name; tests pass their own.
+    static func key(service: String = service) -> SymmetricKey? {
+        if let existing = readKey(store, service) { return existing }
         let fresh = SymmetricKey(size: .bits256)
-        switch addKey(fresh, store) {
+        switch addKey(fresh, store, service) {
         case errSecSuccess: return fresh
         // Lost a race with another Kept process; use the one that won.
-        case errSecDuplicateItem: return readKey(store)
+        case errSecDuplicateItem: return readKey(store, service)
         default: return nil
         }
     }
@@ -71,12 +73,12 @@ enum SettingsSeal {
     /// write the new key where its planter can read it. If something keeps
     /// planting between the delete and the add, nothing is sealed, and the
     /// folder has to be chosen again rather than sealed with a key that leaks.
-    static func rotatedKey() -> SymmetricKey? {
+    static func rotatedKey(service: String = service) -> SymmetricKey? {
         for _ in 0..<3 {
-            let deleted = SecItemDelete(baseQuery(store) as CFDictionary)
+            let deleted = SecItemDelete(baseQuery(store, service) as CFDictionary)
             guard deleted == errSecSuccess || deleted == errSecItemNotFound else { return nil }
             let fresh = SymmetricKey(size: .bits256)
-            switch addKey(fresh, store) {
+            switch addKey(fresh, store, service) {
             case errSecSuccess: return fresh
             case errSecDuplicateItem: continue
             default: return nil
@@ -91,20 +93,20 @@ enum SettingsSeal {
     /// it again; nil otherwise. (Kept 1.0's key isn't reachable this way: it
     /// was saved under the old identifier, see IdentityMigration.)
     static func legacyKeyForMigration() -> SymmetricKey? {
-        store == .dataProtection ? readKey(.login) : nil
+        store == .dataProtection ? readKey(.login, service) : nil
     }
 
     static func deleteLegacyKey() {
         guard store == .dataProtection else { return }
-        SecItemDelete(baseQuery(.login) as CFDictionary)
+        SecItemDelete(baseQuery(.login, service) as CFDictionary)
     }
 
     /// Removes the key. Uninstall only: every sealed setting stops verifying.
     /// From both keychains, so a key left over from 1.0 goes too.
-    static func deleteKey() -> OSStatus {
+    static func deleteKey(service: String = service) -> OSStatus {
         var first = errSecSuccess
         for store in store == .dataProtection ? [Store.dataProtection, .login] : [.login] {
-            let status = SecItemDelete(baseQuery(store) as CFDictionary)
+            let status = SecItemDelete(baseQuery(store, service) as CFDictionary)
             if status != errSecSuccess, status != errSecItemNotFound, first == errSecSuccess {
                 first = status
             }
@@ -122,7 +124,7 @@ enum SettingsSeal {
 
     // MARK: - Keychain
 
-    private static func baseQuery(_ store: Store) -> [String: Any] {
+    private static func baseQuery(_ store: Store, _ service: String) -> [String: Any] {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -134,8 +136,10 @@ enum SettingsSeal {
         return query
     }
 
-    private static func addKey(_ key: SymmetricKey, _ store: Store) -> OSStatus {
-        var attributes = baseQuery(store)
+    private static func addKey(
+        _ key: SymmetricKey, _ store: Store, _ service: String
+    ) -> OSStatus {
+        var attributes = baseQuery(store, service)
         attributes[kSecAttrLabel as String] = "Kept settings seal"
         attributes[kSecValueData as String] = key.withUnsafeBytes { Data($0) }
         if store == .dataProtection {
@@ -148,8 +152,8 @@ enum SettingsSeal {
         return SecItemAdd(attributes as CFDictionary, nil)
     }
 
-    private static func readKey(_ store: Store) -> SymmetricKey? {
-        var query = baseQuery(store)
+    private static func readKey(_ store: Store, _ service: String) -> SymmetricKey? {
+        var query = baseQuery(store, service)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?

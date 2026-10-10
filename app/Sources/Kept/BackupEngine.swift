@@ -26,13 +26,60 @@ struct BackupError: Error, CustomStringConvertible {
 ///   7. osxphotos incremental mirror export, relaunched once on failure;
 ///      files it would delete are moved to "Removed from Photos" instead
 actor BackupEngine {
-    private var currentProcess: Process?
-    private var cancelRequested = false
+    /// How long the engine waits on things, in one place so tests can shrink
+    /// it. The defaults are what a real backup uses.
+    struct Timing: Sendable {
+        var probe: TimeInterval = Config.probeTimeoutSecs
+        var slowProbe: TimeInterval = Config.slowProbeTimeoutSecs
+        var unmountSettle: Duration = .seconds(3)
+        var mountPoll: Duration = .seconds(2)
+        var mountTimeout: Duration = .seconds(Config.mountTimeoutSecs)
+        var stall: Duration = .seconds(Config.exportStallTimeoutSecs)
+        var stallCheck: Duration = .seconds(30)
+        var stallSampleSecs = 3
+        var volumeCall: TimeInterval = Config.volumeCallTimeoutSecs
+    }
 
+    /// Runs a child process: executable, arguments, timeout, stop signal.
+    typealias CommandRunner =
+        @Sendable (String, [String], TimeInterval?, StopSignal?) async -> CommandResult
+
+    private let timing: Timing
+    private let command: CommandRunner
+    private let pythonOverride: URL?
+    private let workingDirectory: URL
+    private let stop = StopSignal()
+    /// Every call that touches the backup folder and can block on a share that
+    /// stopped answering. See BlockingLane.
+    private let volumeLane = BlockingLane()
+    private var currentProcess: Process?
+
+    init(
+        timing: Timing = Timing(),
+        python: URL? = nil,
+        workingDirectory: URL = Config.appSupportDir,
+        command: CommandRunner? = nil
+    ) {
+        self.timing = timing
+        self.pythonOverride = python
+        self.workingDirectory = workingDirectory
+        self.command = command ?? { executable, arguments, timeout, stop in
+            await ShellCommand.run(executable, arguments, timeout: timeout, stop: stop)
+        }
+    }
+
+    /// Stops the backup in progress at whatever step it's on: a reconnect, a
+    /// probe or the export.
     func cancel() {
-        cancelRequested = true
+        stop.fire()
         currentProcess?.terminate()
     }
+
+    private func throwIfStopped() throws {
+        if stop.isStopped { throw BackupError("Cancelled", kind: .cancelled) }
+    }
+
+    private var python: URL? { pythonOverride ?? Config.bundledPython }
 
     func run(
         trigger: BackupTrigger,
@@ -40,7 +87,7 @@ actor BackupEngine {
         onProgress: @escaping @Sendable (ExportProgress) -> Void,
         onLogTail: @escaping @Sendable ([String]) -> Void = { _ in }
     ) async -> RunRecord {
-        cancelRequested = false
+        stop.reset()
         var record = RunRecord(trigger: trigger, start: .now)
         Config.ensureDirectories()
 
@@ -107,7 +154,9 @@ actor BackupEngine {
         do {
             try await checkLibraryAccess(runLog)
             try await ensureDestinationReady(destination, runLog)
-            expireRemovedPhotos(destination, runLog)
+            try throwIfStopped()
+            await expireRemovedPhotos(destination, runLog)
+            try throwIfStopped()
             try await checkFreeSpace(destination, runLog)
             let progress = try await runExport(
                 destination, runLog, onProgress: onProgress, onLogTail: onLogTail)
@@ -124,7 +173,7 @@ actor BackupEngine {
             // the Photos app total: it includes hidden, shared and burst
             // items. Kept only uses it to size the first-copy warning.
             record.mirroredCount = progress.total > 0 ? progress.total : nil
-        } catch let error as BackupError where cancelRequested {
+        } catch let error as BackupError where stop.isStopped {
             _ = error
             runLog.log("Backup cancelled by user.")
             record.end = .now
@@ -161,7 +210,9 @@ actor BackupEngine {
     /// export dies on its first read, and on 2026-10-06 that surfaced three
     /// times as "stopped partway" — a cause the user could not act on.
     private func checkLibraryAccess(_ runLog: RunLog) async throws {
-        guard await LibraryAccess.canRead() == false else { return }
+        let canRead = await LibraryAccess.canRead(stop: stop)
+        try throwIfStopped()
+        guard canRead == false else { return }
         throw BackupError(
             "Can't read \(Config.photosLibraryProbePath): Full Disk Access is off",
             kind: .libraryAccess)
@@ -198,7 +249,7 @@ actor BackupEngine {
     /// Local destination: the folder must exist (an unplugged disk fails
     /// loudly). Network destination: mount-with-recovery, below. Either way,
     /// the volume must be the one that was chosen.
-    private func ensureDestinationReady(_ dest: Destination, _ runLog: RunLog) async throws {
+    func ensureDestinationReady(_ dest: Destination, _ runLog: RunLog) async throws {
         // Re-checked here, not just at selection time: whatever is in the
         // folder and isn't from the library gets moved aside and, later,
         // deleted.
@@ -215,56 +266,82 @@ actor BackupEngine {
         }
         // On a share too, once it's mounted: a folder renamed or moved on the
         // NAS used to surface as "Couldn't check free space".
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: dest.path, isDirectory: &isDir),
-            isDir.boolValue
-        else {
+        let check = await volumeLane.run(timeout: timing.volumeCall) {
+            () -> (exists: Bool, mismatch: String?) in
+            var isDir: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: dest.path, isDirectory: &isDir)
+                && isDir.boolValue
+            return (exists, exists ? dest.volumeMismatch() : nil)
+        }
+        guard case .finished(let result) = check else { throw notResponding(dest, runLog) }
+        guard result.exists else {
             throw BackupError(
                 "Backup folder \(dest.path) is not available (disk unplugged or folder deleted?)",
                 kind: .volumeUnreachable)
         }
-        if let mismatch = dest.volumeMismatch() {
+        if let mismatch = result.mismatch {
             runLog.log("Refusing to back up: \(mismatch)")
             throw BackupError(mismatch, kind: .setupFailed)
         }
     }
 
+    /// The backup folder's disk didn't answer a call in time, or is still
+    /// stuck on an earlier one.
+    private func notResponding(_ dest: Destination, _ runLog: RunLog) -> BackupError {
+        runLog.log("The backup folder stopped answering file requests.")
+        return BackupError("“\(dest.displayName)” stopped responding.", kind: .volumeUnreachable)
+    }
+
     /// True if the share responds to a real directory read in time. A stale
     /// SMB mount hangs or errors on reads while still showing up in `mount`,
     /// so the probe is a child process that gets SIGKILLed on timeout.
-    private func mountIsHealthy(_ mountPoint: String, _ runLog: RunLog) async -> Bool {
-        let probe = await ShellCommand.run(
-            "/bin/ls", [mountPoint], timeout: Config.probeTimeoutSecs)
+    private func mountIsHealthy(
+        _ mountPoint: String, _ runLog: RunLog, timeout: TimeInterval
+    ) async -> Bool {
+        let probe = await command("/bin/ls", [mountPoint], timeout, stop)
         if probe.timedOut {
-            runLog.log(
-                "Mount probe hung for \(Int(Config.probeTimeoutSecs))s; treating mount as stale.")
+            runLog.log("Mount probe hung for \(Int(timeout))s.")
             return false
         }
         return probe.status == 0
     }
 
     private func isMounted(_ mountPoint: String) async -> Bool {
-        let result = await ShellCommand.run("/sbin/mount", timeout: 30)
+        let result = await command("/sbin/mount", [], 30, stop)
         return result.stdout.contains(" on \(mountPoint) (smbfs")
     }
 
-    private func ensureMount(_ dest: Destination, _ runLog: RunLog) async throws {
+    func ensureMount(_ dest: Destination, _ runLog: RunLog) async throws {
         guard let mountPoint = dest.mountPoint, let smbURL = dest.smbURL else {
             // Network volume we can't remount (AFP/NFS). If it reads, proceed.
-            if await mountIsHealthy(dest.path, runLog) { return }
+            let healthy = await mountIsHealthy(dest.path, runLog, timeout: timing.probe)
+            try throwIfStopped()
+            if healthy { return }
             throw BackupError(
                 "Network folder \(dest.path) is unreachable; automatic remounting is only supported for SMB shares",
                 kind: .volumeUnreachable)
         }
-        if await isMounted(mountPoint) {
-            if await mountIsHealthy(mountPoint, runLog) { return }
+        let mounted = await isMounted(mountPoint)
+        try throwIfStopped()
+        if mounted {
+            if await mountIsHealthy(mountPoint, runLog, timeout: timing.probe) { return }
+            try throwIfStopped()
+            // A NAS whose disks were asleep can take longer than the first
+            // probe allows to answer. Force-unmounting it then turned a slow
+            // wake-up into a failed backup, so it gets one longer try first.
+            runLog.log("Share didn't answer; trying again for \(Int(timing.slowProbe))s.")
+            if await mountIsHealthy(mountPoint, runLog, timeout: timing.slowProbe) { return }
+            try throwIfStopped()
             runLog.log("Share is mounted but stale; force-unmounting.")
-            let unmount = await ShellCommand.run(
-                "/usr/sbin/diskutil", ["unmount", "force", mountPoint], timeout: 60)
+            let unmount = await command(
+                "/usr/sbin/diskutil", ["unmount", "force", mountPoint], 60, stop)
+            try throwIfStopped()
             if unmount.status != 0 {
-                _ = await ShellCommand.run("/sbin/umount", ["-f", mountPoint], timeout: 60)
+                _ = await command("/sbin/umount", ["-f", mountPoint], 60, stop)
+                try throwIfStopped()
             }
-            try? await Task.sleep(for: .seconds(3))
+            try? await Task.sleep(for: timing.unmountSettle)
+            try throwIfStopped()
         }
 
         // Checked only now, when the URL is about to be used: a share that is
@@ -283,8 +360,9 @@ actor BackupEngine {
         // the stored URL close the string literal and append AppleScript —
         // which `do shell script` turns into arbitrary code running as a child
         // of this app, inheriting its Photos and network-volume TCC grants.
-        let mountResult = await ShellCommand.run(
-            "/usr/bin/osascript", Self.mountScriptArguments(smbURL), timeout: 120)
+        let mountResult = await command(
+            "/usr/bin/osascript", Self.mountScriptArguments(smbURL), 120, stop)
+        try throwIfStopped()
         if !mountResult.stderr.isEmpty {
             runLog.appendRaw(mountResult.stderr.trimmingCharacters(in: .newlines))
         }
@@ -297,21 +375,28 @@ actor BackupEngine {
                 kind: .setupFailed)
         }
 
-        var waited = 0
+        let clock = ContinuousClock()
+        let started = clock.now
         while !(await isMounted(mountPoint)) {
-            if waited >= Config.mountTimeoutSecs {
+            try throwIfStopped()
+            if started.duration(to: clock.now) >= timing.mountTimeout {
                 throw BackupError(
-                    "Could not mount \(smbURL) after \(Config.mountTimeoutSecs)s",
+                    "Could not mount \(smbURL) after \(timing.mountTimeout.components.seconds)s",
                     kind: .volumeUnreachable)
             }
-            try? await Task.sleep(for: .seconds(2))
-            waited += 2
+            try? await Task.sleep(for: timing.mountPoll)
+            try throwIfStopped()
         }
-        guard await mountIsHealthy(mountPoint, runLog) else {
+        // The longer probe: a share that was just mounted may still be waking
+        // its disks.
+        let healthy = await mountIsHealthy(mountPoint, runLog, timeout: timing.slowProbe)
+        try throwIfStopped()
+        guard healthy else {
             throw BackupError(
                 "Mounted \(smbURL) but it does not respond to reads", kind: .volumeUnreachable)
         }
-        runLog.log("Mounted and healthy after \(waited)s.")
+        runLog.log(
+            "Mounted and healthy after \(started.duration(to: clock.now).components.seconds)s.")
     }
 
     /// The reconnect, as `osascript` arguments. Shared with the check the
@@ -337,7 +422,9 @@ actor BackupEngine {
     /// fourth field of `df -g`, which shifts for a volume whose name has a
     /// space in it. Gigabytes as df counts them (2^30 bytes).
     private func checkFreeSpace(_ dest: Destination, _ runLog: RunLog) async throws {
-        guard let stats = dest.volumeStats() else {
+        let read = await volumeLane.run(timeout: timing.volumeCall) { dest.volumeStats() }
+        guard case .finished(let stats) = read else { throw notResponding(dest, runLog) }
+        guard let stats else {
             throw BackupError(
                 "Couldn't check free space on “\(dest.displayName)”.", kind: .setupFailed)
         }
@@ -399,11 +486,22 @@ actor BackupEngine {
     /// Deletes "Removed from Photos" folders past the retention setting, before
     /// the free-space check so the space they free counts. Never fails the
     /// backup: anything it couldn't delete is logged and tried again next run.
-    private func expireRemovedPhotos(_ dest: Destination, _ runLog: RunLog) {
+    ///
+    /// On the volume lane, off the actor, so Stop can still reach the engine
+    /// while it works. No timeout: deleting a year of removed photos from a
+    /// NAS can legitimately take minutes, and nothing else may touch the
+    /// folder until it's done.
+    private func expireRemovedPhotos(_ dest: Destination, _ runLog: RunLog) async {
         let days = RemovedPhotos.retentionDays()
-        let result = RemovedPhotos.expire(
-            backupRoot: URL(filePath: dest.path, directoryHint: .isDirectory),
-            retentionDays: days)
+        let outcome = await volumeLane.run {
+            RemovedPhotos.expire(
+                backupRoot: URL(filePath: dest.path, directoryHint: .isDirectory),
+                retentionDays: days)
+        }
+        guard case .finished(let result) = outcome else {
+            runLog.log("Skipped deleting expired removed photos: the backup folder isn't answering.")
+            return
+        }
         for folder in result.expired {
             runLog.log(
                 "Deleted \(RemovedPhotos.folderName)/\(folder.name) "
@@ -417,7 +515,7 @@ actor BackupEngine {
 
     // MARK: - Export
 
-    private func runExport(
+    func runExport(
         _ dest: Destination,
         _ runLog: RunLog,
         onProgress: @escaping @Sendable (ExportProgress) -> Void,
@@ -425,14 +523,14 @@ actor BackupEngine {
     ) async throws -> ExportProgress {
         var lastStatus: Int32 = -1
         for attempt in 1...Config.exportAttempts {
-            if cancelRequested { throw BackupError("Cancelled", kind: .cancelled) }
+            try throwIfStopped()
             runLog.log("Starting osxphotos export (attempt \(attempt) of \(Config.exportAttempts))...")
 
             let (status, progress) = try await runOsxphotos(
                 dest, runLog, onProgress: onProgress, onLogTail: onLogTail)
             lastStatus = status
             if status == 0 { return progress }
-            if cancelRequested { throw BackupError("Cancelled", kind: .cancelled) }
+            try throwIfStopped()
 
             runLog.log("Export attempt \(attempt) exited with status \(status).")
             if attempt < Config.exportAttempts {
@@ -452,12 +550,12 @@ actor BackupEngine {
         onProgress: @escaping @Sendable (ExportProgress) -> Void,
         onLogTail: @escaping @Sendable ([String]) -> Void
     ) async throws -> (status: Int32, progress: ExportProgress) {
-        guard let python = Config.bundledPython else {
+        guard let python else {
             throw BackupError("Part of Kept is missing. Reinstall it.", kind: .setupFailed)
         }
         let process = Process()
         process.executableURL = python
-        process.currentDirectoryURL = Config.appSupportDir
+        process.currentDirectoryURL = workingDirectory
         guard let executable = Bundle.main.executableURL?.path else {
             throw BackupError("Part of Kept is missing. Reinstall it.", kind: .setupFailed)
         }
@@ -465,8 +563,15 @@ actor BackupEngine {
         environment[RemovedPhotos.executableVariable] = executable
         environment[RemovedPhotos.backupRootVariable] = dest.path
         process.environment = environment
-        try RemovedPhotos.writeKeepRules(
-            backupRoot: URL(filePath: dest.path, directoryHint: .isDirectory))
+        let rules = await volumeLane.run(timeout: timing.volumeCall) {
+            Result { try RemovedPhotos.writeKeepRules(
+                backupRoot: URL(filePath: dest.path, directoryHint: .isDirectory)) }
+        }
+        guard case .finished(let written) = rules else { throw notResponding(dest, runLog) }
+        try written.get()
+        // The last suspension before launch. Past it, a Stop reaches the
+        // process through `currentProcess`.
+        try throwIfStopped()
         process.arguments = Self.exportArguments(destinationPath: dest.path)
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -516,12 +621,17 @@ actor BackupEngine {
         let stalled = Mutex(false)
         let samplePath = Mutex<String?>(nil)
         let pid = process.processIdentifier
+        let stallLimit = timing.stall
+        let stallCheck = timing.stallCheck
+        let sampleSecs = timing.stallSampleSecs
+        // Beside the run log, which is in the logs folder.
+        let sampleDir = runLog.url.deletingLastPathComponent()
         let stallWatchdog = Task {
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(30))
+                try? await Task.sleep(for: stallCheck)
                 if Task.isCancelled { return }
                 let idle = lastOutput.withLock { $0.duration(to: ContinuousClock.now) }
-                if idle > .seconds(Config.exportStallTimeoutSecs) {
+                if idle > stallLimit {
                     stalled.withLock { $0 = true }
 
                     // Capture where it is stuck *before* killing it. Two hangs
@@ -529,10 +639,11 @@ actor BackupEngine {
                     // on 2026-07-31 and 2026-08-07 — and no evidence either
                     // time, because the only thing that could have said where
                     // it was blocked was the process being killed to end them.
-                    let path = Config.logDir
+                    let path = sampleDir
                         .appending(path: "stall-sample-\(RunLog.fileStamp(.now)).txt").path
                     let sampled = await ShellCommand.run(
-                        "/usr/bin/sample", ["\(pid)", "3", "-file", path], timeout: 120)
+                        "/usr/bin/sample", ["\(pid)", "\(sampleSecs)", "-file", path],
+                        timeout: 120)
                     if sampled.status == 0 { samplePath.withLock { $0 = path } }
 
                     // SIGKILL, not SIGTERM: a process wedged in a syscall
@@ -589,7 +700,7 @@ actor BackupEngine {
         for await _ in exited {}
         if stalled.withLock({ $0 }) {
             runLog.log(
-                "No output for \(Config.exportStallTimeoutSecs / 60) minutes — the export was "
+                "No output for \(stallLimit.components.seconds / 60) minutes — the export was "
                     + "hung and has been killed. Retrying if attempts remain.")
             if let path = samplePath.withLock({ $0 }) {
                 runLog.log("Captured a stack sample of the hung process at \(path)")
@@ -602,10 +713,13 @@ actor BackupEngine {
                 "Moved \(movedFrom.count) file\(movedFrom.count == 1 ? "" : "s") removed from Photos to "
                     + "\(RemovedPhotos.folderName); kept for "
                     + "\(RemovedPhotos.retentionDays()) days.")
-            let emptied = RemovedPhotos.removeEmptyFolders(
-                backupRoot: URL(filePath: dest.path, directoryHint: .isDirectory),
-                movedFrom: movedFrom)
-            if !emptied.isEmpty {
+            let moved = movedFrom
+            let outcome = await volumeLane.run {
+                RemovedPhotos.removeEmptyFolders(
+                    backupRoot: URL(filePath: dest.path, directoryHint: .isDirectory),
+                    movedFrom: moved)
+            }
+            if case .finished(let emptied) = outcome, !emptied.isEmpty {
                 runLog.log("Removed \(emptied.count) empty folder\(emptied.count == 1 ? "" : "s").")
             }
         }
@@ -634,7 +748,7 @@ actor BackupEngine {
             return "The test couldn't start: \(error.localizedDescription)"
         }
 
-        guard let python = Config.bundledPython else {
+        guard let python else {
             return "Part of Kept is missing. Reinstall it."
         }
         let result = await ShellCommand.run(

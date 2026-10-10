@@ -5,6 +5,11 @@ import ServiceManagement
 import UserNotifications
 
 /// Main-actor glue between the engine, the scheduler, and the menu UI.
+///
+/// What it owns is the state the panel and Settings show and the decisions
+/// about when a backup runs. Choosing a folder is in DestinationPicker, the
+/// daily check's LaunchAgent in StalenessAgent, removing Kept in
+/// UninstallFlow, and the review tools in ReviewTools.
 @MainActor
 @Observable
 final class BackupController {
@@ -26,7 +31,7 @@ final class BackupController {
     var status: Status = .idle
     var history: [RunRecord] = []
     var isRunning = false
-    var launchAtLogin = false
+    private(set) var launchAtLogin = false
     var accessTestResult: String?
     var destination: Destination?
 
@@ -36,18 +41,61 @@ final class BackupController {
     var destinationFreeBytes: Int64?
     var destinationIsMounted = false
 
-    /// Preferences, mirrored into stored properties so SwiftUI observes them.
-    /// Written through to UserDefaults by the `set…` methods below rather than
-    /// by property observers, which `@Observable` does not carry over.
-    private(set) var cadence: BackupCadence = .nightly
-    private(set) var weeklyWeekday = 1
-    private(set) var catchUpEnabled = true
-    private(set) var notifyOnFailure = true
-    private(set) var notifyAlways = false
-    private(set) var stalenessWarningEnabled = true
-    private(set) var stalenessDays = 3
-    private(set) var removedRetentionDays = RemovedPhotos.defaultRetentionDays
+    /// Preferences, as stored properties so SwiftUI observes them and Settings
+    /// binds to them directly. Each writes itself through to UserDefaults.
+    ///
+    /// `@Observable` keeps property observers, but runs them for the
+    /// assignments in `init` too, so each one waits for `preferencesLoaded`:
+    /// otherwise loading a preference would write it straight back, and the
+    /// ones with side effects would rearm the timer or reinstall the daily
+    /// check before anything was set up.
+    var cadence: BackupCadence = .nightly {
+        didSet { persist(cadence.rawValue, Preferences.cadence, rearm: true) }
+    }
+    var weeklyWeekday = 1 {
+        didSet { persist(weeklyWeekday, Preferences.weeklyWeekday, rearm: true) }
+    }
+    var catchUpEnabled = true {
+        didSet { persist(catchUpEnabled, Preferences.catchUpEnabled) }
+    }
+    var notifyOnFailure = true {
+        didSet { persist(notifyOnFailure, Preferences.notifyOnFailure) }
+    }
+    var notifyAlways = false {
+        didSet { persist(notifyAlways, Preferences.notifyAlways) }
+    }
+    var stalenessWarningEnabled = true {
+        didSet {
+            persist(stalenessWarningEnabled, Preferences.stalenessWarningEnabled)
+            if preferencesLoaded { syncStalenessAgent() }
+        }
+    }
+    var stalenessDays = 3 {
+        didSet {
+            // Reassigning re-runs this observer, once, with the valid value.
+            guard stalenessDays >= 1 else { stalenessDays = 1; return }
+            persist(stalenessDays, Preferences.stalenessDays)
+        }
+    }
+    /// Takes effect at the next backup, which deletes anything now past it.
+    var removedRetentionDays = RemovedPhotos.defaultRetentionDays {
+        didSet {
+            guard RemovedPhotos.retentionChoices.contains(removedRetentionDays) else {
+                removedRetentionDays = oldValue
+                return
+            }
+            persist(removedRetentionDays, Preferences.removedRetentionDays)
+        }
+    }
     private(set) var hasCompletedOnboarding = false
+
+    @ObservationIgnored private var preferencesLoaded = false
+
+    private func persist(_ value: Any, _ key: String, rearm: Bool = false) {
+        guard preferencesLoaded else { return }
+        UserDefaults.standard.set(value, forKey: key)
+        if rearm { scheduler.rearm() }
+    }
 
     /// Mirrors `scheduler.nextFire`. Stored rather than computed so an open
     /// Settings window updates the moment the schedule changes.
@@ -67,7 +115,9 @@ final class BackupController {
     /// osxphotos has announced a total, which is also when the design says to
     /// drop the "· about Xm left" clause.
     var estimatedTimeRemaining: TimeInterval? {
+        #if KEPT_REVIEW_TOOLS
         if let preview { return preview.estimatedTimeRemaining }
+        #endif
         guard case .running(let progress) = status,
             let fraction = progress.fractionComplete, fraction > 0.01,
             let started = runStartedAt
@@ -86,6 +136,8 @@ final class BackupController {
     /// The power source at the last change, so only a move onto mains power
     /// counts as one. macOS reports every change in charge level too.
     private var wasOnAC = PowerSource.isOnAC
+    /// The panel's mount and free-space reads. See refreshDestinationStats.
+    private let statsLane = BlockingLane()
 
     /// What macOS allows for Kept's notifications. nil until read, and always
     /// outside an app bundle.
@@ -121,6 +173,7 @@ final class BackupController {
         stalenessDays = max(1, defaults.integer(forKey: Preferences.stalenessDays))
         removedRetentionDays = RemovedPhotos.retentionDays(defaults)
         hasCompletedOnboarding = defaults.bool(forKey: Preferences.hasCompletedOnboarding)
+        preferencesLoaded = true
 
         if destination == nil {
             status = .needsDestination
@@ -241,46 +294,13 @@ final class BackupController {
 
     // MARK: - Destination
 
-    /// Folder picker plus the --cleanup guardrail: picking a non-empty folder
-    /// gets a blunt warning that foreign contents will be deleted by the
-    /// mirror and that a new folder means a full re-export.
+    /// The folder picker, with its refusals and the non-empty-folder warning
+    /// (DestinationPicker). A NAS folder also gets the reconnect tried once,
+    /// so any Automation prompt appears now rather than at 2 AM.
     func chooseDestination() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.prompt = "Use for Backup"
-        panel.message = "Choose a folder for your backup."
-        NSApp.activate(ignoringOtherApps: true)
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
-        let picked = Destination.from(folder: url)
-
-        // The destination is a mirror, not a folder that also holds a backup:
-        // anything else in it is moved aside and later deleted. Pointed at a
-        // home or system folder, a Photos library or a whole cloud drive, that
-        // loses someone's files, so those are refused outright rather than
-        // warned about.
-        if Destination.isUnsafeMirrorRoot(path: picked.path, resolvingLinks: true) {
-            unsafeMirrorRootAlert(for: picked.displayName).runModal()
-            return
-        }
-        let entries = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
-        if let refusal = Destination.refusal(path: picked.path, entries: entries)
-            ?? Destination.refusal(path: url.resolvingSymlinksInPath().path)
-        {
-            unsafeMirrorRootAlert(for: picked.displayName, refusal: refusal).runModal()
-            return
-        }
-
-        // By path: choosing the current folder again only refreshes what Kept
-        // knows about its disk, and isn't a new folder to warn about.
-        if picked.path != destination?.path {
-            if !Destination.isEffectivelyEmpty(entries: entries) {
-                guard nonEmptyFolderAlert(for: picked).runModal() == .alertSecondButtonReturn
-                else { return }
-            }
-        }
+        guard let picked = DestinationPicker.choose(
+            current: destination, retentionDays: removedRetentionDays)
+        else { return }
 
         clearPreview()
         DestinationStore.save(picked)
@@ -290,104 +310,11 @@ final class BackupController {
         refreshDestinationStats()
         Task { await refreshPhotosAccess() }
         if picked.isNetwork, let smbURL = picked.smbURL {
-            Task { await askToReconnectWhileAttended(smbURL, name: picked.displayName) }
+            Task {
+                await DestinationPicker.askToReconnectWhileAttended(
+                    smbURL, name: picked.displayName)
+            }
         }
-    }
-
-    /// Runs the reconnect once, now, while someone is at the Mac.
-    ///
-    /// Reconnecting a share is an Apple Event, and macOS asks before an app
-    /// may send one. Left to the first night the share has dropped, that
-    /// prompt would appear at 2 AM with nobody to answer it, and the backup
-    /// would fail. The share is mounted (it was just picked), so reconnecting
-    /// changes nothing; it only raises the prompt, if there is one, here.
-    private func askToReconnectWhileAttended(_ smbURL: String, name: String) async {
-        guard Bundle.main.bundleURL.pathExtension == "app",
-            Destination.isWellFormedSMBURL(smbURL)
-        else { return }
-        let result = await ShellCommand.run(
-            "/usr/bin/osascript", BackupEngine.mountScriptArguments(smbURL), timeout: 120)
-        guard BackupEngine.isAutomationDenied(result.stderr) else { return }
-        NSApp.activate(ignoringOtherApps: true)
-        if cantReconnectAlert(for: name).runModal() == .alertFirstButtonReturn {
-            openAutomationSettings()
-        }
-    }
-
-    private func cantReconnectAlert(for name: String) -> NSAlert {
-        let alert = NSAlert()
-        alert.messageText = "Kept can't reconnect “\(name)” on its own"
-        alert.informativeText =
-            "If it disconnects, backups will fail until you connect it in the Finder. "
-            + "Turn on Kept in Automation to fix this."
-        alert.addButton(withTitle: "Open Automation Settings")
-        alert.addButton(withTitle: "Not Now")
-        return alert
-    }
-
-    func openAutomationSettings() {
-        if let url = URL(
-            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")
-        {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    /// Refusal for a folder the mirror would empty out. Built here rather
-    /// than inline so Settings → Advanced can show it without anyone having
-    /// to aim the picker at their home folder to find out what it says.
-    private func unsafeMirrorRootAlert(
-        for name: String, refusal: Destination.Refusal? = nil
-    ) -> NSAlert {
-        let alert = NSAlert()
-        alert.messageText = "“\(name)” can't be the backup folder"
-        alert.informativeText = switch refusal {
-        case nil:
-            "Kept removes anything in the backup folder that isn't from your "
-                + "library, so system and home folders aren't safe. Create a new "
-                + "folder for it."
-        case .insidePhotosLibrary:
-            "It's inside a Photos library. Choose a folder outside the library."
-        case .holdsPhotosLibrary:
-            "It has a Photos library in it, which Kept would move out of the "
-                + "folder. Create a new folder for the backup."
-        case .cloudFolder:
-            "Kept would move the files already in it, and the change would sync "
-                + "to your other devices. Create a new folder for the backup."
-        }
-        alert.alertStyle = .critical
-        alert.addButton(withTitle: "OK")
-        return alert
-    }
-
-    /// The "this folder is not empty" confirmation. Cancel is added first,
-    /// which makes it the default button, so Return never accepts a folder
-    /// whose contents Kept will move. "Use This Folder" is the second button;
-    /// reordering these means reworking the caller's return-code check.
-    private func nonEmptyFolderAlert(for picked: Destination) -> NSAlert {
-        let alert = NSAlert()
-        alert.messageText =
-            "Use “\(picked.displayName)”\(hostClause(picked)) as your backup folder?"
-        alert.informativeText = """
-            This folder isn't empty. Kept will move anything in it that isn't \
-            from your library to “\(RemovedPhotos.folderName)” and delete it after \
-            \(removedRetentionDays) days. Continue only if it's an old Kept backup \
-            or you don't need what's in it.
-            """
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Use This Folder")
-        return alert
-    }
-
-    /// " on nas.local" for a network share, empty for a local disk — the design
-    /// asks for the host in the alert so two same-named folders can be told apart.
-    private func hostClause(_ destination: Destination) -> String {
-        guard destination.isNetwork,
-            let smbURL = destination.smbURL,
-            let host = URL(string: smbURL)?.host()
-        else { return "" }
-        return " on \(host)"
     }
 
     // MARK: - Runs
@@ -573,27 +500,39 @@ final class BackupController {
 
     // MARK: - Destination stats
 
-    /// Reads the volume's mount state and free space off the main actor.
+    /// Reads the volume's mount state and free space on a thread of its own.
     ///
-    /// `statfs` costs ~0.01ms on a healthy volume, which is why this used to run
-    /// inline on the main actor. But the destination is usually an SMB share,
-    /// and on a stale mount these calls block — indefinitely. That is not
-    /// hypothetical here: BackupEngine runs its mount probe as a SIGKILL-able
-    /// child process for exactly this reason. Inline, one dead mount freezes
-    /// the menubar panel; off the actor it just leaves the numbers blank.
+    /// `statfs` costs ~0.01ms on a healthy volume, but the destination is
+    /// usually an SMB share, and on a stale mount these calls block —
+    /// indefinitely. Inline on the main actor, one dead mount froze the
+    /// panel. Then they ran on the cooperative pool, where each panel open
+    /// left another thread blocked for good until the pool ran dry and the
+    /// backup in progress stalled with it (see BlockingLane). One read at a
+    /// time now, and a read that doesn't answer in time leaves the share
+    /// showing as not connected, which by then it effectively isn't.
     func refreshDestinationStats() {
         guard let destination else {
             destinationIsMounted = false
             destinationFreeBytes = nil
             return
         }
-        Task { [weak self] in
-            let stats = await Task.detached(priority: .utility) {
+        Task { [weak self, statsLane] in
+            let outcome = await statsLane.run(timeout: Config.volumeCallTimeoutSecs) {
                 (mounted: destination.isMounted, free: destination.volumeStats()?.freeBytes)
-            }.value
+            }
             guard let self, self.destination == destination else { return }
-            self.destinationIsMounted = stats.mounted
-            self.destinationFreeBytes = stats.free
+            switch outcome {
+            case .finished(let stats):
+                self.destinationIsMounted = stats.mounted
+                self.destinationFreeBytes = stats.free
+            case .timedOut:
+                self.destinationIsMounted = false
+                self.destinationFreeBytes = nil
+            case .busy:
+                // An earlier read is still out, and either it lands or it has
+                // already timed out and said so.
+                break
+            }
         }
     }
 
@@ -608,184 +547,6 @@ final class BackupController {
         scheduler.rearm()
     }
 
-    func setCadence(_ value: BackupCadence) {
-        cadence = value
-        UserDefaults.standard.set(value.rawValue, forKey: Preferences.cadence)
-        scheduler.rearm()
-    }
-
-    func setWeeklyWeekday(_ value: Int) {
-        weeklyWeekday = value
-        UserDefaults.standard.set(value, forKey: Preferences.weeklyWeekday)
-        scheduler.rearm()
-    }
-
-    func setCatchUpEnabled(_ value: Bool) {
-        catchUpEnabled = value
-        UserDefaults.standard.set(value, forKey: Preferences.catchUpEnabled)
-    }
-
-    func setNotifyOnFailure(_ value: Bool) {
-        notifyOnFailure = value
-        UserDefaults.standard.set(value, forKey: Preferences.notifyOnFailure)
-    }
-
-    func setNotifyAlways(_ value: Bool) {
-        notifyAlways = value
-        UserDefaults.standard.set(value, forKey: Preferences.notifyAlways)
-    }
-
-    // MARK: - Staleness watchdog
-
-    func setStalenessWarningEnabled(_ value: Bool) {
-        stalenessWarningEnabled = value
-        UserDefaults.standard.set(value, forKey: Preferences.stalenessWarningEnabled)
-        syncStalenessAgent()
-    }
-
-    /// Takes effect at the next backup, which deletes anything now past it.
-    func setRemovedRetentionDays(_ value: Int) {
-        guard RemovedPhotos.retentionChoices.contains(value) else { return }
-        removedRetentionDays = value
-        UserDefaults.standard.set(value, forKey: Preferences.removedRetentionDays)
-    }
-
-    func setStalenessDays(_ value: Int) {
-        stalenessDays = max(1, value)
-        UserDefaults.standard.set(stalenessDays, forKey: Preferences.stalenessDays)
-    }
-
-    /// Brings the staleness LaunchAgent in line with the preference.
-    ///
-    /// Uses a plain user LaunchAgent under ~/Library/LaunchAgents, bootstrapped
-    /// with launchctl, rather than the modern `SMAppService.agent`. That is
-    /// deliberate and was measured, not assumed: SMAppService validates the
-    /// registered program against a Team-ID-based code requirement, and this
-    /// app is self-signed with `TeamIdentifier=not set`. launchd accepted the
-    /// registration, reported the job `.enabled`, and then refused every spawn
-    /// with `last exit reason = OS_REASON_CODESIGNING`. Five silent failures,
-    /// and three nights without a backup that nothing reported. A plain agent
-    /// carries no such requirement and runs (verified: `last exit code = 0`).
-    ///
-    /// Worth revisiting if the app ever gets a real Developer ID — that would
-    /// also let the hardened runtime drop `disable-library-validation`.
-    func syncStalenessAgent() {
-        Task { await applyStalenessAgent() }
-    }
-
-    private func applyStalenessAgent() async {
-        let target = "gui/\(getuid())/\(Self.stalenessLabel)"
-        let plistURL = Self.stalenessPlistURL
-        // Always bootout first: bootstrap fails outright if the label is
-        // already loaded, so this is what makes reinstalls idempotent.
-        _ = await ShellCommand.run("/bin/launchctl", ["bootout", target], timeout: 20)
-
-        guard stalenessWarningEnabled else {
-            try? FileManager.default.removeItem(at: plistURL)
-            stalenessAgentError = nil
-            return
-        }
-
-        // The program path comes from the running bundle, not a hardcoded
-        // /Applications, so a copy running from anywhere schedules itself.
-        guard let executable = Bundle.main.executableURL?.path else {
-            stalenessAgentError = "Could not locate the Kept executable."
-            return
-        }
-        do {
-            try FileManager.default.createDirectory(
-                at: plistURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Self.stalenessPlist(executable: executable)
-                .write(to: plistURL, atomically: true, encoding: .utf8)
-            let result = await ShellCommand.run(
-                "/bin/launchctl", ["bootstrap", "gui/\(getuid())", plistURL.path], timeout: 20)
-            stalenessAgentError = result.status == 0
-                ? nil
-                : "launchctl bootstrap failed (\(result.status)) "
-                    + result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-        } catch {
-            // Surfaced in Settings rather than swallowed — a watchdog that
-            // silently failed to install is worse than no watchdog, because
-            // the checkbox would claim protection that isn't there.
-            stalenessAgentError = error.localizedDescription
-        }
-    }
-
-    static let stalenessLabel = "com.chipcressman.Kept.staleness"
-
-    static var stalenessPlistURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appending(path: "Library/LaunchAgents/\(stalenessLabel).plist")
-    }
-
-    /// `AssociatedBundleIdentifiers` ties the job to the app in System Settings
-    /// → Login Items & Extensions. Without it, Background App Activity listed
-    /// Kept twice: the app, and a second "Kept" with a generic exec icon that
-    /// was this job.
-    static func stalenessPlist(
-        executable: String, bundleIdentifier: String = Bundle.main.bundleIdentifier ?? "com.chipcressman.Kept"
-    ) -> String {
-        """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" \
-        "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict>
-            <key>Label</key>
-            <string>\(stalenessLabel)</string>
-            <key>ProgramArguments</key>
-            <array>
-                <string>\(xmlEscaped(executable))</string>
-                <string>--staleness-check</string>
-            </array>
-            <key>StartCalendarInterval</key>
-            <dict>
-                <key>Hour</key><integer>9</integer>
-                <key>Minute</key><integer>0</integer>
-            </dict>
-            <key>RunAtLoad</key>
-            <false/>
-            <key>ProcessType</key>
-            <string>Background</string>
-            <key>AssociatedBundleIdentifiers</key>
-            <array>
-                <string>\(xmlEscaped(bundleIdentifier))</string>
-            </array>
-        </dict>
-        </plist>
-        """
-    }
-
-    private static func xmlEscaped(_ text: String) -> String {
-        text.replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-    }
-    var stalenessAgentError: String?
-
-    /// Complaint text when the watchdog is switched on but launchd is not
-    /// actually running it, else nil.
-    ///
-    /// The check runs daily, so a stamp older than three days means it has
-    /// missed at least two firings — the failure that let this app go three
-    /// nights without a backup and say nothing. Registration status cannot
-    /// detect it: launchd reported the job as `.enabled` the whole time it was
-    /// failing to spawn.
-    func stalenessAgentStaleWarning(now: Date = .now) -> String? {
-        guard stalenessWarningEnabled else { return nil }
-        let defaults = UserDefaults.standard
-        guard let lastRun = defaults.object(forKey: Preferences.stalenessLastRun) as? Date else {
-            // Never run. Only a complaint once it has had a chance to.
-            let installed = (try? FileManager.default.attributesOfItem(
-                atPath: Bundle.main.bundlePath)[.modificationDate]) as? Date
-            guard let installed, now.timeIntervalSince(installed) > 2 * 86_400 else { return nil }
-            return "The daily check hasn't run yet."
-        }
-        let days = Int(now.timeIntervalSince(lastRun) / 86_400)
-        guard days >= 3 else { return nil }
-        return "The daily check hasn't run in \(days) days."
-    }
-
     /// Time of day, as a Date, for the Settings picker. Writing it reschedules.
     var scheduleTime: Date {
         get {
@@ -797,6 +558,20 @@ final class BackupController {
             let parts = Calendar.current.dateComponents([.hour, .minute], from: newValue)
             setSchedule(hour: parts.hour ?? 2, minute: parts.minute ?? 0)
         }
+    }
+
+    // MARK: - Staleness watchdog
+
+    var stalenessAgentError: String?
+
+    /// Brings the daily check's LaunchAgent in line with the preference.
+    func syncStalenessAgent() {
+        Task { stalenessAgentError = await StalenessAgent.apply(enabled: stalenessWarningEnabled) }
+    }
+
+    /// See StalenessAgent.staleWarning.
+    func stalenessAgentStaleWarning(now: Date = .now) -> String? {
+        StalenessAgent.staleWarning(enabled: stalenessWarningEnabled, now: now)
     }
 
     // MARK: - Login item
@@ -820,6 +595,14 @@ final class BackupController {
         launchAtLogin = SMAppService.mainApp.status == .enabled
     }
 
+    /// The Open at Login checkbox. Computed rather than observed: the value
+    /// shown is what macOS reports afterwards, which isn't always what was
+    /// asked for, and a `didSet` that corrects itself would run forever.
+    var openAtLogin: Bool {
+        get { launchAtLogin }
+        set { setLaunchAtLogin(newValue) }
+    }
+
     func setLaunchAtLogin(_ enabled: Bool) {
         do {
             if enabled {
@@ -841,6 +624,9 @@ final class BackupController {
         guard !hasCompletedOnboarding else { return }
         hasCompletedOnboarding = true
         UserDefaults.standard.set(true, forKey: Preferences.hasCompletedOnboarding)
+        // The last screen just named when the first backup starts. A time
+        // that passed before now isn't one it promised (fireCatchUpIfMissed).
+        UserDefaults.standard.set(Date.now, forKey: Preferences.setupCompletedAt)
         // Everything start() held back: the login item, the daily check, and
         // the access check, so a blocked library surfaces in the panel now
         // rather than after a relaunch.
@@ -858,26 +644,6 @@ final class BackupController {
     func onboardingDismissedEarly() async {
         guard !hasCompletedOnboarding else { return }
         await refreshPhotosAccess()
-    }
-
-    /// Reopens the flow from Settings → Advanced, for checking the setup
-    /// screens without having to clear the preference by hand.
-    ///
-    /// Nothing already granted is asked for a second time: the Photos request
-    /// returns early unless the choice is still `.notDetermined`, and macOS
-    /// will not re-prompt for a decision the user has made.
-    func resetOnboarding() {
-        hasCompletedOnboarding = false
-        UserDefaults.standard.set(false, forKey: Preferences.hasCompletedOnboarding)
-        OnboardingWindowController.showIfNeeded(controller: self)
-    }
-
-    /// Opens the flow at one screen, for reviewing that screen.
-    ///
-    /// Unlike `resetOnboarding` this leaves `hasCompletedOnboarding` alone: a
-    /// look at screen 3 should not arm the first-run flow for the next launch.
-    func showOnboarding(startingAt page: Int) {
-        OnboardingWindowController.show(controller: self, startingAt: page)
     }
 
     // MARK: - Menu actions
@@ -925,12 +691,10 @@ final class BackupController {
         }
     }
 
-    /// Diagnostic override for the glyph, set from Settings → Advanced.
-    /// In-memory only: a forced badge must never outlive the app that set it.
-    var glyphPreview: GlyphState?
-
     var glyphState: GlyphState {
+        #if KEPT_REVIEW_TOOLS
         if let glyphPreview { return glyphPreview }
+        #endif
         // displayStatus, not status: previewing a panel state should carry the
         // menubar icon with it, or the two halves of the same screenshot
         // disagree.
@@ -990,15 +754,94 @@ final class BackupController {
         }
     }
 
-    // MARK: - State preview
+    // MARK: - What the panel shows
 
-    /// The forced state, when Settings → Advanced is driving one.
+    /// What the panel renders. Everything the UI reads goes through the
+    /// `display…` accessors, so a review build's forced state sits on top of
+    /// the real one and the real one comes straight back when it's cleared.
+    var displayStatus: Status {
+        #if KEPT_REVIEW_TOOLS
+        if let preview { return preview.status }
+        #endif
+        return status
+    }
+
+    var displayHistory: [RunRecord] {
+        #if KEPT_REVIEW_TOOLS
+        if let preview { return preview.history }
+        #endif
+        return history
+    }
+
+    var displayLogTail: [String] {
+        #if KEPT_REVIEW_TOOLS
+        if let preview { return preview.logTail }
+        #endif
+        return logTail
+    }
+
+    /// The real destination wins whenever there is one — a preview should never
+    /// claim photos are going somewhere they aren't. The sample only fills in on
+    /// a machine that has not been set up, where the alternative is a blank row.
+    var displayDestination: Destination? {
+        #if KEPT_REVIEW_TOOLS
+        return destination ?? preview?.destination
+        #else
+        return destination
+        #endif
+    }
+
+    /// General tab reads these two rather than the underlying values, so the
+    /// preview is a display concern and never touches what the watchdog
+    /// actually reported.
+    var displayStalenessAgentError: String? {
+        #if KEPT_REVIEW_TOOLS
+        switch stalenessWarningPreview {
+        case .registrationFailed: return "launchctl bootstrap failed (5) Input/output error"
+        case .neverRuns: return nil
+        case nil: break
+        }
+        #endif
+        return stalenessAgentError
+    }
+
+    func displayStalenessAgentStaleWarning(now: Date = .now) -> String? {
+        #if KEPT_REVIEW_TOOLS
+        switch stalenessWarningPreview {
+        case .registrationFailed: return nil
+        case .neverRuns: return "This check last ran 6 days ago — it should run daily."
+        case nil: break
+        }
+        #endif
+        return stalenessAgentStaleWarning(now: now)
+    }
+
+    /// Drops every forced state. Called by anything that starts or finishes a
+    /// real run, which outranks them; nothing to drop in a release build.
+    func clearPreview() {
+        #if KEPT_REVIEW_TOOLS
+        preview = nil
+        glyphPreview = nil
+        stalenessWarningPreview = nil
+        #endif
+    }
+
+    // MARK: - Review tools' overrides
+
+    #if KEPT_REVIEW_TOOLS
+    /// The forced panel state, when Settings → Advanced is driving one.
     ///
     /// In-memory only, like `glyphPreview` and for the same reason: a panel
     /// showing a fabricated "backed up an hour ago" is the exact lie this app
     /// exists to prevent, so it must not survive a quit. Nothing here is
     /// written to runs.json or to any preference.
     private(set) var preview: StatePreview.Snapshot?
+
+    /// The scenario picker's selection.
+    var previewScenario: PreviewScenario? {
+        get { preview?.scenario }
+        set { preview = newValue.map { StatePreview.snapshot(for: $0) } }
+    }
 
     var isPreviewing: Bool { preview != nil }
 
@@ -1007,336 +850,38 @@ final class BackupController {
         preview != nil || glyphPreview != nil || stalenessWarningPreview != nil
     }
 
-    /// What the panel renders. Everything the UI reads goes through the
-    /// `display…` pair so the real state is left intact underneath and comes
-    /// straight back when the preview is cleared.
-    var displayStatus: Status { preview?.status ?? status }
-    var displayHistory: [RunRecord] { preview?.history ?? history }
-    var displayLogTail: [String] { preview?.logTail ?? logTail }
-
-    /// The real destination wins whenever there is one — a preview should never
-    /// claim photos are going somewhere they aren't. The sample only fills in on
-    /// a machine that has not been set up, where the alternative is a blank row.
-    var displayDestination: Destination? { destination ?? preview?.destination }
-
-    func setPreview(_ scenario: PreviewScenario?) {
-        preview = scenario.map { StatePreview.snapshot(for: $0) }
-    }
-
-    /// Drops every override. Called from the panel's preview banner, from
-    /// Settings, and by anything that starts or finishes a real run.
-    func clearPreview() {
-        preview = nil
-        glyphPreview = nil
-        stalenessWarningPreview = nil
-    }
-
-    /// The two orange rows the General tab can grow under the staleness
-    /// checkbox. Neither is reachable on demand: one needs `launchctl
-    /// bootstrap` to fail, the other needs launchd to accept the job and then
-    /// never spawn it — which is exactly the silent failure they exist to
-    /// report, and exactly why the copy has to be reviewable.
-    enum StalenessWarningPreview: String, CaseIterable, Identifiable, Sendable {
-        case registrationFailed, neverRuns
-
-        var id: String { rawValue }
-
-        var label: String {
-            switch self {
-            case .registrationFailed: "Couldn't schedule"
-            case .neverRuns: "Not running"
-            }
-        }
-    }
+    /// Forced menubar glyph. In-memory only: a forced badge must never outlive
+    /// the app that set it.
+    var glyphPreview: GlyphState?
 
     var stalenessWarningPreview: StalenessWarningPreview?
 
-    /// General tab reads these two rather than the underlying values, so the
-    /// preview is a display concern and never touches what the watchdog
-    /// actually reported.
-    var displayStalenessAgentError: String? {
-        switch stalenessWarningPreview {
-        case .registrationFailed:
-            "launchctl bootstrap failed (5) Input/output error"
-        case .neverRuns: nil
-        case nil: stalenessAgentError
-        }
-    }
-
-    func displayStalenessAgentStaleWarning(now: Date = .now) -> String? {
-        switch stalenessWarningPreview {
-        case .registrationFailed: nil
-        case .neverRuns: "This check last ran 6 days ago — it should run daily."
-        case nil: stalenessAgentStaleWarning(now: now)
-        }
-    }
-
-    /// The alerts `chooseDestination` raises, shown on demand.
+    /// Reopens the flow from Settings → Advanced, for checking the setup
+    /// screens without having to clear the preference by hand.
     ///
-    /// All are refusals or warnings about a folder the user just picked, so
-    /// there is no way to see one without pointing Kept at a folder you
-    /// would rather it didn't touch.
-    enum PreviewDialog: String, CaseIterable, Identifiable, Sendable {
-        case unsafeRoot, photosLibrary, cloudFolder, nonEmptyFolder, cantReconnect
-
-        var id: String { rawValue }
-
-        var label: String {
-            switch self {
-            case .unsafeRoot: "Unsafe Folder"
-            case .photosLibrary: "Holds a Library"
-            case .cloudFolder: "Cloud Folder"
-            case .nonEmptyFolder: "Folder Not Empty"
-            case .cantReconnect: "Can't Reconnect"
-            }
-        }
+    /// Nothing already granted is asked for a second time: macOS will not
+    /// re-prompt for a decision the user has made.
+    func resetOnboarding() {
+        hasCompletedOnboarding = false
+        UserDefaults.standard.set(false, forKey: Preferences.hasCompletedOnboarding)
+        OnboardingWindowController.showIfNeeded(controller: self)
     }
-
-    func showPreviewDialog(_ dialog: PreviewDialog) {
-        // The real destination when there is one, so the alert names something
-        // the reviewer recognises.
-        let sample = destination ?? StatePreview.sampleDestination
-        NSApp.activate(ignoringOtherApps: true)
-        switch dialog {
-        case .unsafeRoot:
-            unsafeMirrorRootAlert(for: FileManager.default
-                .homeDirectoryForCurrentUser.appending(path: "Pictures").lastPathComponent)
-                .runModal()
-        case .photosLibrary:
-            unsafeMirrorRootAlert(for: "Photos SSD", refusal: .holdsPhotosLibrary).runModal()
-        case .cloudFolder:
-            unsafeMirrorRootAlert(for: "iCloud Drive", refusal: .cloudFolder).runModal()
-        case .nonEmptyFolder:
-            _ = nonEmptyFolderAlert(for: sample).runModal()
-        case .cantReconnect:
-            if cantReconnectAlert(for: sample.displayName).runModal() == .alertFirstButtonReturn {
-                openAutomationSettings()
-            }
-        }
-    }
-
-    /// The three notifications, posted for real so they can be checked in
-    /// Notification Centre — including whether the "Launch Kept" button on the
-    /// staleness one still works.
-    ///
-    /// Deliberately not gated on the notify preferences the engine honours: the
-    /// point of the button is to see the notification, and a button that
-    /// silently does nothing because a checkbox is off is worse than no button.
-    enum PreviewNotification: String, CaseIterable, Identifiable, Sendable {
-        case complete, failed, stale
-
-        var id: String { rawValue }
-
-        var label: String {
-            switch self {
-            case .complete: "Backup Complete"
-            case .failed: "Backup Failed"
-            case .stale: "Backups Stopped"
-            }
-        }
-    }
+    #endif
 
     // MARK: - Uninstall
 
-    /// True while the removal is working, so the button cannot be pressed twice.
+    /// True once removal has started, for the rest of the process's life, so
+    /// the button can't be pressed twice and no backup starts into the state
+    /// folder being deleted.
     private(set) var isUninstalling = false
 
-    /// Settings → Advanced → Remove Kept.
-    ///
-    /// A self-signed menubar app that registers a login item and a LaunchAgent
-    /// has no Installer to undo it, and the obvious move — drag it to the Trash
-    /// — is the one that leaves launchd firing daily at a missing binary. So
-    /// the app has to know how to remove itself.
+    /// Settings → Advanced → Remove Kept. See UninstallFlow.
     func beginUninstall() {
-        Task { await runUninstall() }
-    }
-
-    private func runUninstall() async {
         guard !isUninstalling else { return }
-
-        // build.sh refuses for the same reason: taking the app away mid-export
-        // kills osxphotos, loses the run, and leaves the mirror half-updated.
-        // The lock file is checked as well as `isRunning`, so a run started by
-        // another copy of Kept also counts.
-        guard !isRunning, BackupEngine.livePidHoldingLock() == nil else {
-            NSApp.activate(ignoringOtherApps: true)
-            let alert = NSAlert()
-            alert.messageText = "A backup is running"
-            alert.informativeText =
-                "Wait for it to finish, or stop it from the menubar, then try again."
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-            return
+        Task {
+            await UninstallFlow.run(destination: destination, backupIsRunning: isRunning) {
+                self.isUninstalling = true
+            }
         }
-
-        NSApp.activate(ignoringOtherApps: true)
-        // Decided once, so the confirmation, the plan and the summary agree.
-        let removeApp = Uninstall.canRemoveApp()
-        let confirmation = confirmUninstallAlert(removeApp: removeApp)
-        guard confirmation.alert.runModal() == .alertSecondButtonReturn else { return }
-        let keepExportDatabase = confirmation.keepExportDatabase?.state == .on
-
-        // Stays true for the rest of the process's life. The summary alert
-        // below runs a modal loop, which services timers — so without this a
-        // scheduled slot landing in those few seconds would start a backup into
-        // the state directory that was just deleted.
-        isUninstalling = true
-        // The Settings window saves its frame into the defaults domain when it
-        // closes, and it used to close after the domain was deleted, which
-        // brought the domain back with that one key. Closed first now.
-        for window in NSApp.windows where window.isVisible { window.close() }
-        let outcome = await Uninstall.perform(
-            Uninstall.plan(keepExportDatabase: keepExportDatabase, removeApp: removeApp))
-
-        uninstallSummaryAlert(
-            outcome, keptExportDatabase: keepExportDatabase, removedApp: removeApp
-        ).runModal()
-        // Again, flushed to disk: the alert is a window too, and AppKit can
-        // write state on the way out.
-        if let bundleIdentifier = Bundle.main.bundleIdentifier {
-            UserDefaults.standard.removePersistentDomain(forName: bundleIdentifier)
-            CFPreferencesAppSynchronize(bundleIdentifier as CFString)
-        }
-        NSApp.terminate(nil)
-    }
-
-    /// The confirmation, plus the checkbox that decides the export database's
-    /// fate — nil when there is no database to keep.
-    ///
-    /// Asked rather than decided: deleting it is what "remove Kept" promises
-    /// and leaves nothing behind, but it is also about a gigabyte that takes
-    /// hours of copying to rebuild, and someone reinstalling to fix a broken
-    /// install would want it kept. Off by default, so the button still does
-    /// what it says.
-    private func confirmUninstallAlert(
-        removeApp: Bool
-    ) -> (alert: NSAlert, keepExportDatabase: NSButton?) {
-        let exportDBSize = (try? Config.exportDBURL.resourceValues(forKeys: [.fileSizeKey]))?
-            .fileSize
-
-        let alert = NSAlert()
-        alert.alertStyle = .critical
-        alert.messageText = "Remove Kept from this Mac?"
-        var text = removeApp
-            ? "Kept moves to the Trash, and its settings, history, logs and permissions are deleted.\n"
-            : """
-                Kept's settings, history and logs are deleted from this account. \
-                Kept.app stays in Applications: removing it needs an administrator.
-
-                """
-        text += destination.map { "\nYour backup folder stays as it is:\n\($0.path)" }
-            ?? "\nYour backup folder stays as it is."
-        var checkbox: NSButton?
-        if let exportDBSize {
-            text += """
-
-
-                Planning to reinstall? Keep the backup index, or the next backup \
-                starts over from scratch.
-                """
-            let box = NSButton(
-                checkboxWithTitle:
-                    "Keep the backup index (\(RunFormatting.bytes(Int64(exportDBSize))))",
-                target: nil, action: nil)
-            box.state = .off
-            box.sizeToFit()
-            alert.accessoryView = box
-            checkbox = box
-        }
-        alert.informativeText = text
-        // Cancel first, as in the folder-picker warning, and for a stronger
-        // reason here: NSAlert makes the first button added both the rightmost
-        // one and the Return default. That puts the safe answer under the
-        // return key AND under a fast click on the button macOS trains people
-        // to aim for. Reordering these means reworking the caller's
-        // return-code check.
-        alert.addButton(withTitle: "Cancel")
-        let remove = alert.addButton(withTitle: "Remove Kept")
-        remove.hasDestructiveAction = true
-        return (alert, checkbox)
-    }
-
-    private func uninstallSummaryAlert(
-        _ outcome: Uninstall.Outcome, keptExportDatabase: Bool, removedApp: Bool
-    ) -> NSAlert {
-        let alert = NSAlert()
-        alert.alertStyle = outcome.isClean ? .informational : .warning
-        alert.messageText = switch (outcome.isClean, removedApp) {
-        case (true, true): "Kept was removed."
-        case (true, false): "Kept was removed from this account."
-        case (false, _): "Kept was removed, but some items were left behind."
-        }
-
-        // No list of what was removed: on a clean removal it is noise, and the
-        // title already says it. Only what's left over, and why, is worth
-        // reading. The Quit button says the rest.
-        var paragraphs: [String] = []
-        if !outcome.failed.isEmpty {
-            // Named with their paths: a partial uninstall the user cannot see
-            // is worse than one they can finish in the Finder.
-            paragraphs.append("Delete these yourself:\n"
-                + outcome.failed.map { failure in
-                    var line = "• \(failure.label): \(failure.reason)"
-                    if let path = failure.path { line += "\n  \(path)" }
-                    return line
-                }.joined(separator: "\n"))
-        }
-        var backup = "Your backup in \(backupFolderName) wasn't touched."
-        // Checked on disk rather than assumed from the choice: this sentence
-        // tells the user where a gigabyte is, so it has to be true.
-        if keptExportDatabase,
-            FileManager.default.fileExists(atPath: Config.exportDBURL.path) {
-            let folder = (Config.appSupportDir.path as NSString).abbreviatingWithTildeInPath
-            backup += " The backup index stays in \(folder) for a reinstall."
-        }
-        paragraphs.append(backup)
-        // With Kept.app gone its permissions went too; with it staying, the
-        // ones every account shares stay with it (Uninstall.tccResetArguments).
-        if !removedApp {
-            paragraphs.append(
-                "Kept.app and its Privacy & Security settings are shared by every "
-                    + "account, so they stay. An administrator can remove them.")
-        }
-        let text = paragraphs.joined(separator: "\n\n")
-        alert.informativeText = text
-        alert.addButton(withTitle: "Quit")
-        return alert
-    }
-
-    /// "“Kept”" — the name the summary promises survived. The confirmation
-    /// gives the full path instead, on a line of its own: wrapped inside a
-    /// sentence, a long path left its closing parenthesis alone on a line.
-    private var backupFolderName: String {
-        guard let destination else { return "your backup folder" }
-        return "“\(destination.displayName)”"
-    }
-
-    /// A good run some days back — just enough history for the staleness
-    /// check to produce its real sentence for a preview.
-    private static func sampleSuccess(daysAgo: Int) -> RunRecord {
-        var record = RunRecord(
-            trigger: .scheduled, start: .now.addingTimeInterval(-Double(daysAgo) * 86_400))
-        record.outcome = .success
-        return record
-    }
-
-    func postPreviewNotification(_ kind: PreviewNotification) {
-        let payload: KeptNotification.Kind = switch kind {
-        case .complete: .backupComplete(body: "31 new · 6 removed")
-        // Both built by the code the real notifications use, so a preview
-        // can't drift from what actually arrives.
-        case .failed:
-            .backupFailed(
-                message: FailureCopy.message(
-                    kind: .volumeUnreachable, rawMessage: nil,
-                    destination: destination ?? StatePreview.sampleDestination,
-                    failedAt: .now
-                ).plainText)
-        case .stale:
-            .stale(
-                message: StalenessCheck.staleMessage(
-                    history: [Self.sampleSuccess(daysAgo: 4)], thresholdDays: 1) ?? "")
-        }
-        Task { await KeptNotification.post(payload) }
     }
 }
