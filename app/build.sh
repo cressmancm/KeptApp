@@ -27,6 +27,12 @@
 # Options:
 #   --force       install even while a backup is running
 #   --no-install  build and sign .build/Kept.app, leave /Applications alone
+#   --debug       a debug build a debugger can attach to (see below)
+#
+# KEPT_INSTALL_TO installs somewhere other than /Applications/Kept.app, such as
+# ~/Applications/Kept.app, so a build of your own doesn't replace the Kept you
+# use for your backups. Only one Kept runs at a time, though: opening either
+# copy quits the other (SingleInstance), and they share settings and state.
 set -euo pipefail
 
 APP_DIR="${0:A:h}"
@@ -34,18 +40,41 @@ DEVELOPER_ID="$(security find-identity -v -p codesigning \
     | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"' || true)"
 IDENTITY="${KEPT_SIGN_IDENTITY:-${DEVELOPER_ID:-Kept Dev}}"
 BUNDLE="$APP_DIR/.build/Kept.app"
-INSTALL_TO="/Applications/Kept.app"
+INSTALL_TO="${KEPT_INSTALL_TO:-/Applications/Kept.app}"
 LOCK_FILE="$HOME/Library/Application Support/Kept/.backup.pid"
 
 FORCE=0
 INSTALL=1
+CONFIG=release
 for arg in "$@"; do
     case "$arg" in
         --force) FORCE=1 ;;
         --no-install) INSTALL=0 ;;
+        --debug) CONFIG=debug ;;
         *) echo "!!  Unknown option: $arg"; exit 2 ;;
     esac
 done
+if [[ $CONFIG == debug && "${KEPT_RELEASE:-0}" == 1 ]]; then
+    echo "!!  A release can't be a debug build."
+    exit 2
+fi
+
+# The install step deletes whatever is at INSTALL_TO before copying, so a
+# mistyped KEPT_INSTALL_TO must never name something that isn't a Kept.
+if [[ $INSTALL -eq 1 ]]; then
+    if [[ "$INSTALL_TO" != /*.app || "$INSTALL_TO" == *"/../"* ]]; then
+        echo "!!  KEPT_INSTALL_TO must be an absolute path to a .app: $INSTALL_TO"
+        exit 2
+    fi
+    if [[ -e "$INSTALL_TO" ]]; then
+        EXISTING_ID="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' \
+            "$INSTALL_TO/Contents/Info.plist" 2>/dev/null || true)"
+        if [[ "$EXISTING_ID" != "com.chipcressman.Kept" ]]; then
+            echo "!!  $INSTALL_TO isn't a Kept app; not replacing it."
+            exit 2
+        fi
+    fi
+fi
 
 cd "$APP_DIR"
 
@@ -74,13 +103,13 @@ SWIFT_FLAGS=()
 if [[ "${KEPT_RELEASE:-0}" != 1 ]]; then
     SWIFT_FLAGS=(-Xswiftc -DKEPT_REVIEW_TOOLS)
 fi
-echo "==> swift build -c release ${SWIFT_FLAGS[*]}"
-swift build -c release "${SWIFT_FLAGS[@]}"
+echo "==> swift build -c $CONFIG ${SWIFT_FLAGS[*]}"
+swift build -c "$CONFIG" "${SWIFT_FLAGS[@]}"
 
 # Apple silicon only. macOS 26, the minimum, still runs on Intel Macs, but the
 # bundled Python is arm64 — so a build that came out any other way is a broken
 # build, and should stop here rather than ship.
-ARCHS="$(lipo -archs "$APP_DIR/.build/release/Kept")"
+ARCHS="$(lipo -archs "$APP_DIR/.build/$CONFIG/Kept")"
 if [[ "$ARCHS" != "arm64" ]]; then
     echo "!!  Expected an arm64-only binary, got: $ARCHS"
     exit 1
@@ -100,7 +129,7 @@ echo "==> Ensuring app icon"
 echo "==> Assembling $BUNDLE"
 rm -rf "$BUNDLE"
 mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
-cp "$APP_DIR/.build/release/Kept" "$BUNDLE/Contents/MacOS/Kept"
+cp "$APP_DIR/.build/$CONFIG/Kept" "$BUNDLE/Contents/MacOS/Kept"
 cp "$APP_DIR/Info.plist" "$BUNDLE/Contents/Info.plist"
 cp "$APP_DIR/.build/Kept.icns" "$BUNDLE/Contents/Resources/Kept.icns"
 ditto "$APP_DIR/.build/python-env" "$BUNDLE/Contents/Resources/python"
@@ -115,11 +144,15 @@ cp "$APP_DIR/LICENSES.txt" "$BUNDLE/Contents/Resources/LICENSES.txt"
 # invalid"). unchecked-hash: the .pyc is trusted without comparing source
 # mtimes, which a zip or a copy can change; the bundle seal is what keeps the
 # sources and the bytecode honest.
-echo "==> Precompiling bytecode"
+#
+# A debug build skips it: it only makes osxphotos start faster.
 find "$BUNDLE/Contents/Resources/python" -name '__pycache__' -type d -prune -exec rm -rf {} +
-"$BUNDLE/Contents/Resources/python/bin/python3" -I -W ignore::SyntaxWarning -m compileall -q -f -j 0 \
-    --invalidation-mode unchecked-hash "$BUNDLE/Contents/Resources/python/lib" >/dev/null \
-    || echo "    (some modules didn't compile; Python reads those from source)"
+if [[ $CONFIG == release ]]; then
+    echo "==> Precompiling bytecode"
+    "$BUNDLE/Contents/Resources/python/bin/python3" -I -W ignore::SyntaxWarning -m compileall -q -f -j 0 \
+        --invalidation-mode unchecked-hash "$BUNDLE/Contents/Resources/python/lib" >/dev/null \
+        || echo "    (some modules didn't compile; Python reads those from source)"
+fi
 
 SIGN_ID="-"
 if [[ "$IDENTITY" == "-" ]]; then
@@ -143,13 +176,13 @@ fi
 # used, after checking they're for this app and this team, and the build
 # fails rather than ship an app that won't open.
 PROFILE="${KEPT_PROVISIONING_PROFILE:-$APP_DIR/Kept.provisionprofile}"
-APP_ENTITLEMENTS="$APP_DIR/app-entitlements.plist"
+SIGN_TMP="$(mktemp -d -t kept-sign)"
+trap 'rm -rf "$SIGN_TMP"' EXIT
+APP_ENTITLEMENTS="$SIGN_TMP/app-entitlements.plist"
+cp "$APP_DIR/app-entitlements.plist" "$APP_ENTITLEMENTS"
 rm -f "$BUNDLE/Contents/embedded.provisionprofile"
 if [[ "$SIGN_ID" == "Developer ID Application:"* && -f "$PROFILE" ]]; then
-    PROFILE_TMP="$(mktemp -d -t kept-profile)"
-    trap 'rm -rf "$PROFILE_TMP"' EXIT
-    PROFILE_PLIST="$PROFILE_TMP/profile.plist"
-    APP_ENTITLEMENTS="$PROFILE_TMP/app-entitlements.plist"
+    PROFILE_PLIST="$SIGN_TMP/profile.plist"
     security cms -D -i "$PROFILE" > "$PROFILE_PLIST"
     APP_ID="$(plutil -extract 'Entitlements.com\.apple\.application-identifier' raw -o - "$PROFILE_PLIST")"
     TEAM_ID="$(plutil -extract 'Entitlements.com\.apple\.developer\.team-identifier' raw -o - "$PROFILE_PLIST")"
@@ -168,7 +201,6 @@ if [[ "$SIGN_ID" == "Developer ID Application:"* && -f "$PROFILE" ]]; then
         exit 1
     fi
     cp "$PROFILE" "$BUNDLE/Contents/embedded.provisionprofile"
-    cp "$APP_DIR/app-entitlements.plist" "$APP_ENTITLEMENTS"
     plutil -insert 'com\.apple\.application-identifier' -string "$APP_ID" "$APP_ENTITLEMENTS"
     plutil -insert 'com\.apple\.developer\.team-identifier' -string "$TEAM_ID" "$APP_ENTITLEMENTS"
     echo "==> Keychain: data protection ($APP_ID, profile expires ${EXPIRES%%T*})"
@@ -178,6 +210,15 @@ elif [[ "${KEPT_REQUIRE_PROFILE:-0}" == 1 ]]; then
     exit 1
 else
     echo "==> Keychain: login (no provisioning profile)"
+fi
+
+# The hardened runtime refuses a debugger unless the app allows one. A debug
+# build does, so Xcode's Debug → Attach to Process and lldb can reach it; the
+# profile is kept, so it reads the same keychain item as the Kept you use and
+# doesn't ask for the backup folder again (which would break that copy's seal).
+if [[ $CONFIG == debug ]]; then
+    plutil -insert 'com\.apple\.security\.get-task-allow' -bool true "$APP_ENTITLEMENTS"
+    echo "==> Debug build: a debugger can attach"
 fi
 
 # Notarization requires a secure timestamp from Apple on every signature.

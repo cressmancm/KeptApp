@@ -17,15 +17,26 @@ cd app
 ./build.sh           # builds, signs, installs to /Applications and opens Kept
 ```
 
-`make-cert.sh` may ask for your login password; it adds a code-signing certificate trusted for your account only. `bundle-python.sh` checks the Python download against a pinned SHA-256 and installs every package from `python-requirements.lock` with hashes.
+Or, from `app`, `make setup` then `make install`; `make` on its own lists the rest. `make-cert.sh` may ask for your login password; it adds a code-signing certificate trusted for your account only. `bundle-python.sh` checks the Python download against a pinned SHA-256 and installs every package from `python-requirements.lock` with hashes.
 
 `build.sh` options:
 
 - `--no-install` builds and signs `.build/Kept.app` and stops there.
+- `--debug` makes a debug build a debugger can attach to (below).
 - `--force` installs even while a backup is running. Normally it refuses, because installing kills the backup partway through.
+- `KEPT_INSTALL_TO=~/Applications/Kept.app` installs there instead of `/Applications/Kept.app`. The script deletes what's at that path before copying, so it refuses anything that isn't an absolute path to a `.app`, or that's already there and isn't Kept.
 - `KEPT_SIGN_IDENTITY="Name"` signs with that identity and never falls back; `KEPT_SIGN_IDENTITY=-` signs ad-hoc on purpose, as CI does.
 
-**Installing replaces the Kept in /Applications**, and opening any copy quits the others unless one is mid-backup. If you also use Kept for your own backups, a build signed differently from that copy means turning Full Disk Access on again (see Signing below).
+**If you also use Kept for your own backups,** install your builds with `KEPT_INSTALL_TO` so they don't replace that copy. Only one Kept runs at a time, though: opening either quits the other unless it's mid-backup, and both share the same settings, history and backup folder. When you're done, open the copy you use day to day again, so the daily check points at it. A build signed differently from that copy needs Full Disk Access turned on for it separately (see Signing below).
+
+## Debugging the real app
+
+`app/Package.swift` opens in Xcode for editing and running the tests. Xcode can't build the app bundle itself, because the bundled Python, its signing and the provisioning profile are assembled by `build.sh`, but it can debug the bundle:
+
+1. `./build.sh --debug` (or `make debug`): a debug build, with symbols, that allows a debugger to attach. The hardened runtime refuses debuggers otherwise. It keeps your provisioning profile, so it reads the same keychain item as your installed Kept and doesn't ask for the backup folder again.
+2. In Xcode, Debug → Attach to Process → Kept. To catch it from launch, use Debug → Attach to Process by PID or Name, enter `Kept`, then open the app.
+
+From a terminal, `lldb -n Kept --wait-for` does the same as step 2.
 
 ## Running and testing
 

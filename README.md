@@ -38,7 +38,7 @@ cd app
 ./build.sh           # builds, signs, installs to /Applications and launches
 ```
 
-`build.sh` signs with your Developer ID Application certificate if one is in your keychain, and otherwise with the self-signed "Kept Dev" one from `make-cert.sh`. Either way the signature stays the same from build to build, so Full Disk Access only has to be turned on once. Local builds don't need notarizing: macOS only checks that on apps downloaded from the internet.
+`./build.sh --debug` makes a debug build Xcode can attach to, and `KEPT_INSTALL_TO` installs somewhere other than /Applications; `make` in `app` lists shortcuts for all of it. `build.sh` signs with your Developer ID Application certificate if one is in your keychain, and otherwise with the self-signed "Kept Dev" one from `make-cert.sh`. Either way the signature stays the same from build to build, so Full Disk Access only has to be turned on once. Local builds don't need notarizing: macOS only checks that on apps downloaded from the internet.
 
 Run the tests with:
 
