@@ -400,7 +400,24 @@ private struct AdvancedSettings: View {
                 Text(versionLine)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Toggle("Check for updates", isOn: $controller.checkForUpdates)
+                    Text("Once a day, Kept asks GitHub for the latest version.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 330, alignment: .leading)
+                }
+                if let update = controller.displayAvailableUpdate {
+                    HStack(spacing: 8) {
+                        Text("Kept \(update.version) is available.")
+                        Button("Download") { controller.openUpdatePage() }
+                            .controlSize(.small)
+                    }
+                    .font(.caption)
+                }
             }
+            .onAppear { controller.checkForUpdatesIfDue() }
 
             Divider()
 
@@ -568,6 +585,17 @@ private struct ReviewToolsSection: View {
                     .font(.caption)
                     .foregroundStyle(controller.stalenessWarningPreview == nil
                         ? Color.secondary : Color.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 330, alignment: .leading)
+            }
+
+            Divider()
+
+            SettingsRow(label: "Update:") {
+                Toggle("Show “update available”", isOn: $controller.updatePreview)
+                Text("Shows a sample update in the panel and on this tab. Nothing is checked.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: 330, alignment: .leading)
             }

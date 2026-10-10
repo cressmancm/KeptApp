@@ -56,9 +56,14 @@ struct WelcomeScreen: View {
             OnboardingButton(
                 "Get Started", horizontalPadding: 22, verticalPadding: 6, action: advance)
 
-            Text("Nothing leaves your Mac and your network.")
+            // Kept's one request outside the network is the daily update
+            // check, said here because this line used to promise there were
+            // none.
+            Text("Your photos never leave your Mac and your network. Kept checks GitHub for updates.")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.top, 14)
         .padding(.horizontal, 44)

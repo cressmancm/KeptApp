@@ -224,6 +224,14 @@ struct FooterBar<Content: View>: View {
             // so the Settings window would open behind whatever is frontmost.
             .simultaneousGesture(TapGesture().onEnded {
                 NSApp.activate(ignoringOtherApps: true)
+                // And the panel gets out of its way. While its own button is
+                // being clicked the panel is the key window, and it's a panel,
+                // which the Settings window isn't. Closed on the next turn of
+                // the run loop, so the link has opened Settings first, and with
+                // close() rather than orderOut so the menubar icon knows the
+                // panel is gone and opens it again on the next click.
+                guard let panel = NSApp.keyWindow as? NSPanel else { return }
+                DispatchQueue.main.async { panel.close() }
             })
 
             content

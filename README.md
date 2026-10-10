@@ -15,7 +15,7 @@ The backup is ordinary files in date folders (`2024/03/01/IMG_1234.HEIC`), so yo
 - **Explains problems in plain words.** "Couldn't reach nas.local at 2:04 AM. Check that it's on and connected, and Kept will try again."
 - **Removes itself cleanly.** Settings → Advanced → Remove Kept… takes its login item, daily check, settings, history and logs with it, and never touches your backup.
 
-Nothing leaves your Mac and your network: no accounts, no cloud, no analytics.
+Your photos never leave your Mac and your network: no accounts, no cloud, no analytics. Once a day Kept asks GitHub whether there's a newer version, and says so in the menubar if there is; turn that off in Settings → Advanced.
 
 ## Requirements
 

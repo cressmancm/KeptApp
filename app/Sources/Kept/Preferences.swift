@@ -60,6 +60,13 @@ enum Preferences {
     /// and a release built days before it was installed warned at once.
     static let stalenessAgentInstalledAt = "stalenessAgentInstalledAt"
 
+    /// Whether Kept asks GitHub once a day for a newer version (UpdateCheck).
+    static let checkForUpdates = "checkForUpdates"
+    /// When the last check finished, and the newer version it found, if any,
+    /// so the panel can say so without asking again after a relaunch.
+    static let updateCheckedAt = "updateCheckedAt"
+    static let availableUpdateVersion = "availableUpdateVersion"
+
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
             notifyOnFailure: true,
@@ -73,6 +80,7 @@ enum Preferences {
             liveLogExpanded: false,
             hasCompletedOnboarding: false,
             removedRetentionDays: RemovedPhotos.defaultRetentionDays,
+            checkForUpdates: true,
         ])
     }
 

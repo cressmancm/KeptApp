@@ -87,6 +87,12 @@ final class BackupController {
             persist(removedRetentionDays, Preferences.removedRetentionDays)
         }
     }
+    var checkForUpdates = true {
+        didSet {
+            persist(checkForUpdates, Preferences.checkForUpdates)
+            if preferencesLoaded, checkForUpdates { checkForUpdatesIfDue() }
+        }
+    }
     private(set) var hasCompletedOnboarding = false
 
     @ObservationIgnored private var preferencesLoaded = false
@@ -172,8 +178,10 @@ final class BackupController {
         stalenessWarningEnabled = defaults.bool(forKey: Preferences.stalenessWarningEnabled)
         stalenessDays = max(1, defaults.integer(forKey: Preferences.stalenessDays))
         removedRetentionDays = RemovedPhotos.retentionDays(defaults)
+        checkForUpdates = defaults.bool(forKey: Preferences.checkForUpdates)
         hasCompletedOnboarding = defaults.bool(forKey: Preferences.hasCompletedOnboarding)
         preferencesLoaded = true
+        availableUpdate = Self.storedUpdate(defaults)
 
         if destination == nil {
             status = .needsDestination
@@ -208,6 +216,7 @@ final class BackupController {
         refreshNotificationAuthorization()
         await requestExplainedPermissions()
         refreshDestinationStats()
+        checkForUpdatesIfDue()
         // A scheduled time may have passed while the app wasn't running.
         scheduler.fireCatchUpIfMissed()
     }
@@ -536,6 +545,63 @@ final class BackupController {
         }
     }
 
+    // MARK: - Updates
+
+    /// A newer release than this copy, when the last check found one.
+    private(set) var availableUpdate: UpdateCheck.Release?
+    @ObservationIgnored private var updateCheckInFlight = false
+
+    /// Asks GitHub for the latest release if the last check was a day ago or
+    /// more. Called at launch and whenever the panel or Settings opens, which
+    /// are the only places the answer shows, so no timer runs for it.
+    ///
+    /// Not before setup is done: the welcome screen is where Kept says it
+    /// checks. Not outside an app bundle either, which has no version to
+    /// compare.
+    func checkForUpdatesIfDue(now: Date = .now) {
+        let defaults = UserDefaults.standard
+        guard checkForUpdates, hasCompletedOnboarding, !updateCheckInFlight,
+            Bundle.main.bundleURL.pathExtension == "app",
+            UpdateCheck.isDue(
+                checkedAt: defaults.object(forKey: Preferences.updateCheckedAt) as? Date, now: now)
+        else { return }
+        updateCheckInFlight = true
+        Task {
+            let latest = await UpdateCheck.fetchLatest()
+            updateCheckInFlight = false
+            guard let latest else {
+                // Offline, or GitHub didn't answer: try again in an hour, not
+                // at every panel open.
+                defaults.set(
+                    now.addingTimeInterval(UpdateCheck.retryAfterFailure - UpdateCheck.interval),
+                    forKey: Preferences.updateCheckedAt)
+                return
+            }
+            defaults.set(Date.now, forKey: Preferences.updateCheckedAt)
+            let newer = UpdateCheck.isNewer(latest.version, than: Config.appVersion)
+            defaults.set(newer ? latest.version : nil, forKey: Preferences.availableUpdateVersion)
+            availableUpdate = newer ? latest : nil
+        }
+    }
+
+    /// The release found last time, if it's still newer than this copy. After
+    /// an update it no longer is, and it's forgotten.
+    private static func storedUpdate(_ defaults: UserDefaults) -> UpdateCheck.Release? {
+        guard let stored = defaults.string(forKey: Preferences.availableUpdateVersion),
+            let version = UpdateCheck.version(fromTag: stored),
+            UpdateCheck.isNewer(version, than: Config.appVersion)
+        else {
+            defaults.removeObject(forKey: Preferences.availableUpdateVersion)
+            return nil
+        }
+        return UpdateCheck.Release(version: version)
+    }
+
+    func openUpdatePage() {
+        guard let release = displayAvailableUpdate else { return }
+        NSWorkspace.shared.open(release.pageURL)
+    }
+
     // MARK: - Schedule
 
     var scheduledHour: Int { scheduler.scheduledHour }
@@ -632,6 +698,7 @@ final class BackupController {
         // rather than after a relaunch.
         if Bundle.main.bundleURL.pathExtension == "app" { registerBackgroundItems() }
         Task { await requestExplainedPermissions() }
+        checkForUpdatesIfDue()
     }
 
     /// The window was closed before the last screen.
@@ -805,6 +872,14 @@ final class BackupController {
         return stalenessAgentError
     }
 
+    /// The update the panel and Settings offer. Nothing while checking is off.
+    var displayAvailableUpdate: UpdateCheck.Release? {
+        #if KEPT_REVIEW_TOOLS
+        if updatePreview { return UpdateCheck.Release(version: "9.9") }
+        #endif
+        return checkForUpdates ? availableUpdate : nil
+    }
+
     func displayStalenessAgentStaleWarning(now: Date = .now) -> String? {
         #if KEPT_REVIEW_TOOLS
         switch stalenessWarningPreview {
@@ -823,6 +898,7 @@ final class BackupController {
         preview = nil
         glyphPreview = nil
         stalenessWarningPreview = nil
+        updatePreview = false
         #endif
     }
 
@@ -845,10 +921,14 @@ final class BackupController {
 
     var isPreviewing: Bool { preview != nil }
 
-    /// Any override at all is up, including the two Settings-only ones.
+    /// Any override at all is up, including the Settings-only ones.
     var hasAnyPreview: Bool {
-        preview != nil || glyphPreview != nil || stalenessWarningPreview != nil
+        preview != nil || glyphPreview != nil || stalenessWarningPreview != nil || updatePreview
     }
+
+    /// Shows "Kept 9.9 is available" in the panel and Settings, so that row
+    /// can be reviewed without waiting for a release.
+    var updatePreview = false
 
     /// Forced menubar glyph. In-memory only: a forced badge must never outlive
     /// the app that set it.

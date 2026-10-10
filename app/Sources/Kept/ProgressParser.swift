@@ -16,8 +16,11 @@ struct ExportProgress: Equatable, Sendable {
             case .starting: "Starting"
             case .scanning: "Reading your library"
             case .exporting: "Copying"
-            // Files no longer in the library move to "Removed from Photos".
-            case .cleaning: "Moving deleted photos"
+            // osxphotos reads the whole backup for files no longer in the
+            // library, which can take a quarter of an hour on a NAS, and only
+            // then moves any to "Removed from Photos". "Moving deleted photos"
+            // made that search look like a move that had hung.
+            case .cleaning: "Checking for deleted photos"
             case .finishing: "Finishing"
             }
         }

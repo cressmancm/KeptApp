@@ -42,6 +42,7 @@ struct MenuView: View {
         .onAppear {
             controller.refreshDestinationStats()
             controller.refreshNotificationAuthorization()
+            controller.checkForUpdatesIfDue()
         }
     }
 }
@@ -149,6 +150,15 @@ private struct DestinationFacts: View {
             if controller.notificationsAreOff {
                 Button { controller.openNotificationSettings() } label: {
                     FactRow(symbol: "bell.slash", label: "Notifications are off", value: "Turn On")
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            if let update = controller.displayAvailableUpdate {
+                Button { controller.openUpdatePage() } label: {
+                    FactRow(
+                        symbol: "arrow.down.circle", label: "Kept \(update.version) is available",
+                        value: "Download")
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
