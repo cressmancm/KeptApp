@@ -25,7 +25,10 @@ final class AppSealTests: XCTestCase {
     }
 
     func testABuiltAppIsIntact() throws {
-        XCTAssertEqual(AppSeal.isIntact(try builtApp()), true)
+        // Outside the assertion: XCTAssertEqual reports an error thrown inside
+        // it as a failure, which turned "no build here, skip" into a red CI run.
+        let app = try builtApp()
+        XCTAssertEqual(AppSeal.isIntact(app), true)
     }
 
     /// One edited line of bundled Python is enough to refuse the copy.
