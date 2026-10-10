@@ -89,7 +89,17 @@ final class ExportArgumentsTests: XCTestCase {
     /// The Python `bundle-python.sh` built next to this package, so the tests
     /// check the osxphotos this checkout will ship. Falls back to an
     /// installed Kept, and skips when there is neither.
+    ///
+    /// `KEPT_TEST_PYTHON` names the interpreter outright: CI points it at the
+    /// app it just built. Named and missing is a failure, not a skip, so a
+    /// broken bundle can't pass by being skipped.
     private static func bundledPython() throws -> String {
+        if let named = ProcessInfo.processInfo.environment["KEPT_TEST_PYTHON"], !named.isEmpty {
+            guard FileManager.default.isExecutableFile(atPath: named) else {
+                throw NamedPythonMissing(path: named)
+            }
+            return named
+        }
         let package = URL(filePath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let candidates = [
@@ -100,4 +110,9 @@ final class ExportArgumentsTests: XCTestCase {
         else { throw XCTSkip("No bundled Python: run bundle-python.sh, or install Kept") }
         return python
     }
+}
+
+private struct NamedPythonMissing: Error, CustomStringConvertible {
+    let path: String
+    var description: String { "KEPT_TEST_PYTHON names \(path), which isn't an executable" }
 }

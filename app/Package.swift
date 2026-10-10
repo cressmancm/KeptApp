@@ -1,5 +1,6 @@
 // swift-tools-version: 6.2
-// 6.2 so Xcode 26's Swift (6.3) can build it, as well as Xcode 27's.
+// 6.2 so Xcode 26's Swift (6.3) can build it, as well as Xcode 27's. The
+// oldest Xcode Kept builds with is in .xcode-version, which CI checks.
 import PackageDescription
 
 let package = Package(

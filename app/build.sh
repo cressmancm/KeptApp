@@ -13,7 +13,8 @@
 # every build and force a re-grant). Create it once with:
 #   ./make-cert.sh
 #
-# KEPT_SIGN_IDENTITY picks an identity by name and never falls back. release.sh
+# KEPT_SIGN_IDENTITY picks an identity by name and never falls back; "-" signs
+# ad-hoc on purpose, which is what CI does. release.sh
 # sets it, sets KEPT_RELEASE=1 for Apple's secure timestamp and to leave out the
 # review tools, sets KEPT_REQUIRE_PROFILE=1, and passes --no-install.
 #
@@ -121,7 +122,10 @@ find "$BUNDLE/Contents/Resources/python" -name '__pycache__' -type d -prune -exe
     || echo "    (some modules didn't compile; Python reads those from source)"
 
 SIGN_ID="-"
-if security find-identity -v -p codesigning | grep -qF "\"$IDENTITY\""; then
+if [[ "$IDENTITY" == "-" ]]; then
+    # Asked for: CI has no signing identity, and its build is thrown away.
+    echo "==> Signing ad-hoc"
+elif security find-identity -v -p codesigning | grep -qF "\"$IDENTITY\""; then
     SIGN_ID="$IDENTITY"
     echo "==> Signing with '$IDENTITY'"
 elif [[ -n "${KEPT_SIGN_IDENTITY:-}" ]]; then
@@ -215,8 +219,10 @@ echo "==> Verifying signature and hardened-runtime flag"
 codesign --verify --deep --strict "$BUNDLE"
 # Captured rather than piped to grep: `grep -q` exits on first match, SIGPIPEs
 # codesign, and `set -o pipefail` then reports the whole check as failed.
+# An ad-hoc signature reports flags=0x10002(adhoc,runtime), so the match is on
+# "runtime" among the flags rather than on one exact value.
 SIG_INFO="$(codesign -d --verbose=2 "$BUNDLE" 2>&1)"
-if [[ "$SIG_INFO" != *"flags=0x10000(runtime)"* ]]; then
+if [[ ! "$SIG_INFO" =~ 'flags=0x[0-9a-f]+\([^)]*runtime' ]]; then
     echo "!!  Hardened runtime flag missing on $BUNDLE"
     exit 1
 fi

@@ -29,7 +29,7 @@ Get **Kept-1.1.zip** from the [latest release](https://github.com/cressmancm/Kep
 
 ## Building from source
 
-You need Xcode 26 or later.
+You need Xcode 26 or later. [CONTRIBUTING.md](CONTRIBUTING.md) has the details: where Kept keeps its state, how to exercise the parts you can't click, and why signing matters. [ARCHITECTURE.md](ARCHITECTURE.md) is a one-page map of the code.
 
 ```bash
 cd app
@@ -47,13 +47,13 @@ cd app
 swift test
 ```
 
-`release.sh` builds a notarized release with a Developer ID certificate and its provisioning profile, saved as `app/Kept.provisionprofile`. The profile lets Kept keep the key that seals its folder setting in the data-protection keychain; `build.sh` uses it too when it's there, and without it falls back to the login keychain.
+`release.sh` builds a notarized release with a Developer ID certificate and its provisioning profile, saved as `app/Kept.provisionprofile`. The profile lets Kept keep the key that seals its folder setting in the data-protection keychain; `build.sh` uses it too when it's there, and without it falls back to the login keychain. [RELEASING.md](RELEASING.md) has the whole checklist.
 
 ### On GitHub
 
 Two workflows run on GitHub's `macos-26` runner, macOS 26 being the oldest version Kept supports:
 
-- **Tests** builds the app and runs `swift test` on every push and pull request. The few tests that need an installed Kept.app skip there.
+- **Tests** runs on every push and pull request, in two jobs. One runs `swift build` and `swift test`, and checks the runner's Xcode isn't older than [`.xcode-version`](.xcode-version). The other builds Kept.app with its bundled Python, signed ad-hoc, and runs the tests that put Kept's real arguments through that app's osxphotos.
 - **CodeQL** scans the Swift, the Python scripts and the workflow files for security problems on every push and pull request, and every Monday. Results are under the repository's Security tab.
 
 ## How it works

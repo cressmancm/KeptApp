@@ -1,5 +1,6 @@
 #!/bin/zsh
 # release.sh — build a notarized, stapled Kept zip for distribution.
+# The whole release checklist is in RELEASING.md at the top of the repository.
 #
 # Needs, once:
 #   - a "Developer ID Application" certificate in the keychain
