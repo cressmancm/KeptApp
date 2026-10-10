@@ -302,7 +302,7 @@ enum DestinationStore {
         sealingKey: SymmetricKey? = SettingsSeal.key(),
         legacyKey: @autoclosure () -> SymmetricKey? = SettingsSeal.legacyKeyForMigration(),
         resealingKey: @autoclosure () -> SymmetricKey? = SettingsSeal.rotatedKey(),
-        legacyMigrated: () -> Void = SettingsSeal.deleteLegacyKey
+        legacyMigrated: () -> Void = { SettingsSeal.deleteLegacyKey() }
     ) -> Destination? {
         guard let data = defaults.data(forKey: key),
             let seal = defaults.data(forKey: sealKey)

@@ -18,7 +18,9 @@ final class IdentityMigrationTests: XCTestCase {
             ["scheduleHour", Preferences.removedRetentionDays, Preferences.notifyAlways])
     }
 
-    func testItNeverRunsOutsideTheApp() {
-        XCTAssertNotEqual(Bundle.main.bundleURL.pathExtension, "app")
+    /// Whatever runs the tests: `swift test` isn't an app bundle, and Xcode's
+    /// test host is one but counts as a test host.
+    func testItNeverRunsUnderTests() {
+        XCTAssertFalse(IdentityMigration.mayRun)
     }
 }

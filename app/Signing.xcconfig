@@ -1,0 +1,12 @@
+// Code signing for builds from the Xcode project, set up the way Xcode sets up
+// a new Mac app: automatic signing, and signing to run locally until there's a
+// team. Shipping builds don't use this; build.sh and release.sh sign those.
+//
+// Leave this file as it is. To sign with your own team, copy
+// Signing.local.xcconfig.example to Signing.local.xcconfig, which git ignores,
+// and fill it in. See CONTRIBUTING.md.
+CODE_SIGN_STYLE = Automatic
+DEVELOPMENT_TEAM =
+CODE_SIGN_IDENTITY = -
+
+#include? "Signing.local.xcconfig"

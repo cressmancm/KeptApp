@@ -14,6 +14,9 @@ let package = Package(
         .executableTarget(
             name: "Kept",
             path: "Sources/Kept",
+            // The app icon, for the Xcode project. build.sh makes its own
+            // Kept.icns from the same artwork (make-icon.sh).
+            exclude: ["Assets.xcassets"],
             // The review tools in Settings → Advanced (ReviewTools.swift).
             // In debug builds here; build.sh adds them to local release
             // builds, and leaves them out of what release.sh ships.

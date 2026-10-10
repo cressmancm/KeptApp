@@ -38,9 +38,16 @@ enum IdentityMigration {
     /// nothing once the old preferences are gone, which is after its first run.
     /// Only from a real Kept.app: the old preferences are on disk whatever is
     /// running, and a test or `swift run` must never move or delete them.
+    /// Only in the installed app. Not under `swift test`, which isn't a
+    /// bundle, and not in Xcode's test host, which is: the migration reads
+    /// and deletes the real com.chip.Kept preferences.
+    static var mayRun: Bool {
+        Bundle.main.bundleURL.pathExtension == "app" && !Config.isTestHost
+    }
+
     static func runIfNeeded() {
         let defaults = UserDefaults.standard
-        guard Bundle.main.bundleURL.pathExtension == "app",
+        guard mayRun,
             Bundle.main.bundleIdentifier != oldIdentifier,
             let old = defaults.persistentDomain(forName: oldIdentifier), !old.isEmpty
         else { return }

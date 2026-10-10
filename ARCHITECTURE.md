@@ -1,6 +1,6 @@
 # How Kept is put together
 
-Kept is one SwiftUI executable, `app/Sources/Kept`, built with Swift Package Manager and wrapped into `Kept.app` by `app/build.sh`. The app decides when to back up and explains what happened. [osxphotos](https://github.com/RhetTbull/osxphotos), running on a Python bundled inside the app, does the copying.
+Kept is one SwiftUI app, `app/Sources/Kept`. There are two ways to build it from the same files: the Xcode project, `app/Kept.xcodeproj`, for working on it, and Swift Package Manager wrapped by `app/build.sh`, which makes every installed and released copy. CI builds both. The app decides when to back up and explains what happened. [osxphotos](https://github.com/RhetTbull/osxphotos), running on a Python bundled inside the app, does the copying.
 
 ```mermaid
 flowchart TD

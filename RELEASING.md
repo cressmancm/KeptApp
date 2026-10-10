@@ -1,6 +1,6 @@
 # Releasing Kept
 
-Releases are notarized Developer ID builds, published as GitHub releases. Only the maintainer can make one.
+Releases are notarized Developer ID builds, published as GitHub releases. Only the maintainer can make one. They come from `release.sh`, not from Xcode's Archive: the Xcode project is for working on Kept.
 
 ## Once
 

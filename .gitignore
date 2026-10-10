@@ -21,3 +21,7 @@ design_handoff_kept_onboarding_and_polish/
 
 # Provisioning profiles: each maintainer downloads their own
 *.provisionprofile
+
+# Each developer's own signing settings for the Xcode project (see
+# app/Signing.local.xcconfig.example)
+Signing.local.xcconfig

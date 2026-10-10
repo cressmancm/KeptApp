@@ -1,4 +1,14 @@
+import AppKit
 import Foundation
+
+// Under Xcode's tests the app is the test host: XCTest loads the test bundle
+// into it once it has finished launching. Nothing of Kept's own may start then.
+// Claiming the single instance would quit the Kept you use, and the scheduler
+// would run real backups. So the host only runs an empty application.
+if Config.isTestHost {
+    MainActor.assumeIsolated { NSApplication.shared.run() }
+    exit(0)
+}
 
 // Kept has three modes, chosen before any UI exists.
 //

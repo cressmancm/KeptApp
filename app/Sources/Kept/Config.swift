@@ -62,6 +62,12 @@ enum Config {
         ("~/Pictures/Photos Library.photoslibrary/database/Photos.sqlite" as NSString)
         .expandingTildeInPath
 
+    /// True inside Xcode's test host: the app, launched only so XCTest can
+    /// load the tests into it (main.swift starts nothing of Kept's then).
+    static var isTestHost: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
     static let minFreeGB = 20
     static let mountTimeoutSecs = 60
     static let probeTimeoutSecs: TimeInterval = 15

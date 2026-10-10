@@ -272,7 +272,10 @@ final class SecurityTests: XCTestCase {
 
     /// The test runner was not started by Kept, so the cleanup command's
     /// entry point must refuse to act here.
-    func testHoldModeIsRefusedWithoutAKeptAncestor() {
+    func testHoldModeIsRefusedWithoutAKeptAncestor() throws {
+        // Xcode's test host is Kept.app itself, started by launchd, so there
+        // are no ancestors to check. `swift test` covers this.
+        try XCTSkipIf(getppid() == 1, "Started by launchd as Xcode's test host")
         XCTAssertFalse(ProcessAncestry.isDescendantOfOwnExecutable())
         XCTAssertFalse(ProcessAncestry.ancestorExecutables().isEmpty)
     }
@@ -315,11 +318,27 @@ final class SecurityTests: XCTestCase {
         XCTAssertNil(DestinationStore.load(defaults: defaults, sealingKey: nil))
     }
 
-    /// The test runner has no keychain entitlement, so it's on the login
-    /// keychain, and the migration below never reads the real keychain here.
-    func testAnUnentitledBuildUsesTheLoginKeychain() {
-        XCTAssertEqual(SettingsSeal.store, .login)
+    /// `swift test` has no keychain entitlement, so it's on the login
+    /// keychain, and the migration below never reads the real keychain there.
+    /// Xcode's test host, signed with a profile, has the entitlement.
+    func testAnUnentitledBuildUsesTheLoginKeychain() throws {
+        try XCTSkipIf(SettingsSeal.store == .dataProtection, "Running in an entitled test host")
         XCTAssertNil(SettingsSeal.legacyKeyForMigration())
+    }
+
+    /// With the entitlement, the login-keychain side of the migration must
+    /// never see the data-protection key. It did: reading "the login key"
+    /// found the real one, and deleting it deleted the key just made.
+    func testTheLoginSideNeverReachesTheDataProtectionKey() throws {
+        try XCTSkipIf(SettingsSeal.store != .dataProtection, "Needs a provisioned test host")
+        let service = "com.chipcressman.Kept.tests.migration.\(UUID().uuidString)"
+        addTeardownBlock { _ = SettingsSeal.deleteKey(service: service) }
+        let key = try XCTUnwrap(SettingsSeal.key(service: service))
+        func bytes(_ key: SymmetricKey?) -> Data? { key?.withUnsafeBytes { Data($0) } }
+
+        XCTAssertNil(SettingsSeal.legacyKeyForMigration(service: service))
+        SettingsSeal.deleteLegacyKey(service: service)
+        XCTAssertEqual(bytes(SettingsSeal.key(service: service)), bytes(key))
     }
 
     /// Updating from 1.0 keeps the folder: a seal made with the login-keychain

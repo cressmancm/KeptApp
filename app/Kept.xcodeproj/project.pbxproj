@@ -1,0 +1,381 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXContainerItemProxy section */
+		8A1C00000000000000000D02 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8A1C00000000000000000F01 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8A1C00000000000000000B01;
+			remoteInfo = Kept;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		8A1C00000000000000000A05 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		8A1C00000000000000000A06 /* app-entitlements.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "app-entitlements.plist"; sourceTree = "<group>"; };
+		8A1C00000000000000000A07 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		8A1C00000000000000000A08 /* xcode-embed-python.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "xcode-embed-python.sh"; sourceTree = "<group>"; };
+		8A1C00000000000000000A09 /* Kept.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Kept.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8A1C00000000000000000A0A /* KeptTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KeptTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		8A1C00000000000000000A03 /* Kept */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = Kept;
+			path = Sources/Kept;
+			sourceTree = "<group>";
+		};
+		8A1C00000000000000000A04 /* KeptTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = KeptTests;
+			path = Tests/KeptTests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8A1C00000000000000000C02 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8A1C00000000000000000C06 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		8A1C00000000000000000A01 = {
+			isa = PBXGroup;
+			children = (
+				8A1C00000000000000000A03 /* Kept */,
+				8A1C00000000000000000A04 /* KeptTests */,
+				8A1C00000000000000000A05 /* Info.plist */,
+				8A1C00000000000000000A06 /* app-entitlements.plist */,
+				8A1C00000000000000000A07 /* Signing.xcconfig */,
+				8A1C00000000000000000A08 /* xcode-embed-python.sh */,
+				8A1C00000000000000000A02 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		8A1C00000000000000000A02 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8A1C00000000000000000A09 /* Kept.app */,
+				8A1C00000000000000000A0A /* KeptTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		8A1C00000000000000000B01 /* Kept */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8A1C00000000000000000E02 /* Build configuration list for PBXNativeTarget "Kept" */;
+			buildPhases = (
+				8A1C00000000000000000C01 /* Sources */,
+				8A1C00000000000000000C02 /* Frameworks */,
+				8A1C00000000000000000C03 /* Resources */,
+				8A1C00000000000000000C04 /* Embed Python */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				8A1C00000000000000000A03 /* Kept */,
+			);
+			name = Kept;
+			packageProductDependencies = (
+			);
+			productName = Kept;
+			productReference = 8A1C00000000000000000A09 /* Kept.app */;
+			productType = "com.apple.product-type.application";
+		};
+		8A1C00000000000000000B02 /* KeptTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8A1C00000000000000000E03 /* Build configuration list for PBXNativeTarget "KeptTests" */;
+			buildPhases = (
+				8A1C00000000000000000C05 /* Sources */,
+				8A1C00000000000000000C06 /* Frameworks */,
+				8A1C00000000000000000C07 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8A1C00000000000000000D01 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				8A1C00000000000000000A04 /* KeptTests */,
+			);
+			name = KeptTests;
+			packageProductDependencies = (
+			);
+			productName = KeptTests;
+			productReference = 8A1C00000000000000000A0A /* KeptTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8A1C00000000000000000F01 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					8A1C00000000000000000B01 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					8A1C00000000000000000B02 = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = 8A1C00000000000000000B01;
+					};
+				};
+			};
+			buildConfigurationList = 8A1C00000000000000000E01 /* Build configuration list for PBXProject "Kept" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 8A1C00000000000000000A01;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 8A1C00000000000000000A02 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				8A1C00000000000000000B01 /* Kept */,
+				8A1C00000000000000000B02 /* KeptTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8A1C00000000000000000C03 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8A1C00000000000000000C07 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		8A1C00000000000000000C04 /* Embed Python */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed Python";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/xcode-embed-python.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		8A1C00000000000000000C01 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8A1C00000000000000000C05 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		8A1C00000000000000000D01 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8A1C00000000000000000B01 /* Kept */;
+			targetProxy = 8A1C00000000000000000D02 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		8A1C00000000000000000E11 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ENABLE_MODULES = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG KEPT_REVIEW_TOOLS $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		8A1C00000000000000000E12 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ENABLE_MODULES = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "KEPT_REVIEW_TOOLS $(inherited)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		8A1C00000000000000000E21 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 8A1C00000000000000000A07 /* Signing.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "app-entitlements.plist";
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.chipcressman.Kept;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+			};
+			name = Debug;
+		};
+		8A1C00000000000000000E22 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 8A1C00000000000000000A07 /* Signing.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "app-entitlements.plist";
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.chipcressman.Kept;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+			};
+			name = Release;
+		};
+		8A1C00000000000000000E31 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 8A1C00000000000000000A07 /* Signing.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.chipcressman.KeptTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Kept.app/Contents/MacOS/Kept";
+			};
+			name = Debug;
+		};
+		8A1C00000000000000000E32 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 8A1C00000000000000000A07 /* Signing.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.chipcressman.KeptTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Kept.app/Contents/MacOS/Kept";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		8A1C00000000000000000E01 /* Build configuration list for PBXProject "Kept" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8A1C00000000000000000E11 /* Debug */,
+				8A1C00000000000000000E12 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8A1C00000000000000000E02 /* Build configuration list for PBXNativeTarget "Kept" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8A1C00000000000000000E21 /* Debug */,
+				8A1C00000000000000000E22 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8A1C00000000000000000E03 /* Build configuration list for PBXNativeTarget "KeptTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8A1C00000000000000000E31 /* Debug */,
+				8A1C00000000000000000E32 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 8A1C00000000000000000F01 /* Project object */;
+}

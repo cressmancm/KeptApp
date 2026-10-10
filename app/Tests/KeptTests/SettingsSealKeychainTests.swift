@@ -6,9 +6,10 @@ import XCTest
 
 /// The seal key against a real keychain, under a service name of its own.
 ///
-/// The test runner has no keychain entitlement, so this is the login keychain,
-/// the store a build without a provisioning profile uses. The data-protection
-/// store needs a signed, provisioned app and is checked on an installed build.
+/// Which keychain depends on what runs the tests. `swift test` has no keychain
+/// entitlement, so it's the login keychain, the store a build without a
+/// provisioning profile uses. Xcode runs them inside the app, which with a
+/// profile has the entitlement, so there it's the data-protection keychain.
 final class SettingsSealKeychainTests: XCTestCase {
     private func bytes(_ key: SymmetricKey?) -> Data? {
         key?.withUnsafeBytes { Data($0) }
@@ -21,7 +22,6 @@ final class SettingsSealKeychainTests: XCTestCase {
         guard let first = SettingsSeal.key(service: service) else {
             throw XCTSkip("No writable keychain here.")
         }
-        XCTAssertEqual(SettingsSeal.store, .login)
         XCTAssertEqual(bytes(SettingsSeal.key(service: service)), bytes(first))
 
         let rotated = try XCTUnwrap(SettingsSeal.rotatedKey(service: service))

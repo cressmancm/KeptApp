@@ -29,7 +29,7 @@ Get **Kept-1.2.zip** from the [latest release](https://github.com/cressmancm/Kep
 
 ## Building from source
 
-You need Xcode 26 or later. [CONTRIBUTING.md](CONTRIBUTING.md) has the details: where Kept keeps its state, how to exercise the parts you can't click, and why signing matters. [ARCHITECTURE.md](ARCHITECTURE.md) is a one-page map of the code.
+You need Xcode 26 or later. Open `app/Kept.xcodeproj` and run the **Kept** scheme; the first build fetches the bundled Python. Installed and released builds come from the scripts below. [CONTRIBUTING.md](CONTRIBUTING.md) has the details, including signing your own builds: where Kept keeps its state, how to exercise the parts you can't click, and why signing matters. [ARCHITECTURE.md](ARCHITECTURE.md) is a one-page map of the code.
 
 ```bash
 cd app
@@ -68,6 +68,7 @@ Kept is a SwiftUI menubar app that drives [osxphotos](https://github.com/RhetTbu
 
 | Folder | What's in it |
 |---|---|
+| `app/Kept.xcodeproj` | The Xcode project: the app and its tests, for working in Xcode |
 | `app/Sources/Kept` | The app |
 | `app/Tests/KeptTests` | Unit tests, including some that run Kept's real arguments through osxphotos |
 | `app/*.sh` | Certificate, Python bundling, build and release scripts |

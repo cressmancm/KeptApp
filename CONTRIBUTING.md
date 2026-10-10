@@ -1,6 +1,6 @@
 # Working on Kept
 
-Thanks for looking. This covers getting a build running, where Kept keeps its state, and the parts that are awkward to exercise by hand. For how the code fits together, see [ARCHITECTURE.md](ARCHITECTURE.md).
+Thanks for looking. This covers building and running Kept, in Xcode or with the scripts, where Kept keeps its state, and the parts that are awkward to exercise by hand. For how the code fits together, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## What you need
 
@@ -8,7 +8,24 @@ Thanks for looking. This covers getting a build running, where Kept keeps its st
 - macOS 26 or later.
 - Xcode 26 or later. [`.xcode-version`](.xcode-version) holds the minimum, and CI checks it.
 
-## First build
+## In Xcode
+
+Open `app/Kept.xcodeproj` and use the **Kept** scheme: Run (⌘R) builds and opens the app, Test (⌘U) runs the tests, Profile (⌘I) opens it in Instruments. The first build downloads Python and installs osxphotos into `app/.build/python-env`, which takes a minute or two; after that, the Embed Python phase only does work when the Python or the signing identity changes.
+
+The project uses Xcode's synchronized folders: the **Kept** target builds everything in `app/Sources/Kept`, and **KeptTests** everything in `app/Tests/KeptTests`, so a new file needs no project edit. The app icon is the asset catalog in `Sources/Kept/Assets.xcassets`; after changing the artwork in `app/icon`, run `./make-icon.sh --asset-catalog`.
+
+**Signing.** Out of the box the project signs to run locally, which works but changes with every build, so Full Disk Access would need turning on after each one. Copy `app/Signing.local.xcconfig.example` to `app/Signing.local.xcconfig` (git ignores it) and fill it in:
+
+- **With an Apple Developer team,** put in your team ID. Xcode signs with your Apple Development certificate and makes its own provisioning profile, and the hardened runtime stays on.
+- **Without one,** run `./make-cert.sh` and use the "Kept Dev" lines. A self-signed certificate has no Team ID, so these builds go without the hardened runtime, which would otherwise refuse Xcode's debug library and the tests.
+
+**What Run does to your installed Kept.** Xcode's build is another copy of Kept with the same identifier. Opening it quits the Kept in /Applications, unless that one is mid-backup, and both share the same settings, history and backup folder. When you're done, open your usual copy again, so the daily check points at it. A build signed differently from that copy needs Full Disk Access turned on for it separately.
+
+**Tests in Xcode run inside the app,** as Xcode does for any app. `main.swift` notices and starts nothing of Kept's own, so a test run never quits your Kept or starts a backup. Two tests skip there: the `--hold-removed` one, which needs the test runner to have a parent process to inspect, and whichever of the two keychain-store tests doesn't match how the app is signed.
+
+## Building with the scripts
+
+Installed and released builds come from the scripts, not from Xcode:
 
 ```bash
 cd app
@@ -22,30 +39,19 @@ Or, from `app`, `make setup` then `make install`; `make` on its own lists the re
 `build.sh` options:
 
 - `--no-install` builds and signs `.build/Kept.app` and stops there.
-- `--debug` makes a debug build a debugger can attach to (below).
+- `--debug` makes a debug build a debugger can attach to: in Xcode, Debug → Attach to Process → Kept, or `lldb -n Kept --wait-for` before opening it. It keeps your provisioning profile, so it reads the same keychain item as your installed Kept.
 - `--force` installs even while a backup is running. Normally it refuses, because installing kills the backup partway through.
-- `KEPT_INSTALL_TO=~/Applications/Kept.app` installs there instead of `/Applications/Kept.app`. The script deletes what's at that path before copying, so it refuses anything that isn't an absolute path to a `.app`, or that's already there and isn't Kept.
+- `KEPT_INSTALL_TO=~/Applications/Kept.app` installs there instead of `/Applications/Kept.app`, so your build doesn't replace the Kept you use. The script deletes what's at that path before copying, so it refuses anything that isn't an absolute path to a `.app`, or that's already there and isn't Kept.
 - `KEPT_SIGN_IDENTITY="Name"` signs with that identity and never falls back; `KEPT_SIGN_IDENTITY=-` signs ad-hoc on purpose, as CI does.
 
-**If you also use Kept for your own backups,** install your builds with `KEPT_INSTALL_TO` so they don't replace that copy. Only one Kept runs at a time, though: opening either quits the other unless it's mid-backup, and both share the same settings, history and backup folder. When you're done, open the copy you use day to day again, so the daily check points at it. A build signed differently from that copy needs Full Disk Access turned on for it separately (see Signing below).
-
-## Debugging the real app
-
-`app/Package.swift` opens in Xcode for editing and running the tests. Xcode can't build the app bundle itself, because the bundled Python, its signing and the provisioning profile are assembled by `build.sh`, but it can debug the bundle:
-
-1. `./build.sh --debug` (or `make debug`): a debug build, with symbols, that allows a debugger to attach. The hardened runtime refuses debuggers otherwise. It keeps your provisioning profile, so it reads the same keychain item as your installed Kept and doesn't ask for the backup folder again.
-2. In Xcode, Debug → Attach to Process → Kept. To catch it from launch, use Debug → Attach to Process by PID or Name, enter `Kept`, then open the app.
-
-From a terminal, `lldb -n Kept --wait-for` does the same as step 2.
-
-## Running and testing
+## Testing from the command line
 
 ```bash
 cd app
 swift test
 ```
 
-The two tests in `ExportArgumentsTests` run osxphotos itself: they use `.build/python-env`, fall back to an installed Kept, and skip when there's neither. Set `KEPT_TEST_PYTHON` to an interpreter to test that one instead.
+The two tests in `ExportArgumentsTests` run osxphotos itself: they use `.build/python-env`, fall back to an installed Kept, and skip when there's neither. Set `KEPT_TEST_PYTHON` to an interpreter to test that one instead. `AppSealTests` checks a real build at `.build/Kept.app`, or the one `KEPT_TEST_APP` names.
 
 New tests must not touch real state. Use `SecurityTests.scratchDefaults(named:for:)` for preferences, a temporary folder for files, and your own service name for keychain items. `EngineTests` shows how to drive the engine with fake commands and a stand-in for osxphotos.
 
@@ -53,7 +59,7 @@ New tests must not touch real state. Use `SecurityTests.scratchDefaults(named:fo
 
 ## The parts you can't click
 
-- **Review tools.** In a debug build or a local `build.sh` build, hold Option while opening Settings → Advanced. You can force the panel into any state, force the menubar icon, open any setup screen, and show the warnings, alerts, update row and notifications that are otherwise hard to reach. Nothing they do is saved. Release builds leave them out.
+- **Review tools.** In a build from Xcode or a local `build.sh` build, hold Option while opening Settings → Advanced. You can force the panel into any state, force the menubar icon, open any setup screen, and show the warnings, alerts, update row and notifications that are otherwise hard to reach. Nothing they do is saved. Release builds leave them out.
 - **The daily check.** `launchctl kickstart gui/$(id -u)/com.chipcressman.Kept.staleness` makes launchd run it now, which also proves launchd can start it. Running `Kept.app/Contents/MacOS/Kept --staleness-check` yourself does the same work without that proof.
 - **Moving deleted photos.** `Kept --hold-removed` refuses to act unless a running Kept backup started it, so run a real backup. Delete a test photo from Photos first, or point Kept at a folder with a stray file in it. `RemovedPhotosTests` covers the moving itself.
 
@@ -93,4 +99,4 @@ Kept's copy is short, plain and says the outcome first:
 
 ## Pull requests
 
-Run `swift test` first, and `./build.sh --no-install` if you touched the bundle or the scripts. CI runs both on `macos-26`, Kept's minimum. Keep comments in the house style: say why the code is the way it is, including what went wrong before.
+Run the tests first, in Xcode or with `swift test`, and `./build.sh --no-install` if you touched the bundle or the scripts. CI runs all three on `macos-26`, Kept's minimum. Keep comments in the house style: say why the code is the way it is, including what went wrong before.

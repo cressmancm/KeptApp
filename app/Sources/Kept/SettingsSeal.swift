@@ -92,11 +92,11 @@ enum SettingsSeal {
     /// made. Read once, to carry that build's folder over without asking for
     /// it again; nil otherwise. (Kept 1.0's key isn't reachable this way: it
     /// was saved under the old identifier, see IdentityMigration.)
-    static func legacyKeyForMigration() -> SymmetricKey? {
+    static func legacyKeyForMigration(service: String = service) -> SymmetricKey? {
         store == .dataProtection ? readKey(.login, service) : nil
     }
 
-    static func deleteLegacyKey() {
+    static func deleteLegacyKey(service: String = service) {
         guard store == .dataProtection else { return }
         SecItemDelete(baseQuery(.login, service) as CFDictionary)
     }
@@ -130,9 +130,12 @@ enum SettingsSeal {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
-        if store == .dataProtection {
-            query[kSecUseDataProtectionKeychain as String] = true
-        }
+        // Said either way, never left out. In an app with the keychain
+        // entitlement, a query that names no keychain searches the
+        // data-protection one too: "the login key" then found the real key,
+        // and moving a login-keychain build's folder to a release deleted the
+        // fresh key it had just made, so the folder had to be chosen again.
+        query[kSecUseDataProtectionKeychain as String] = store == .dataProtection
         return query
     }
 

@@ -1,10 +1,11 @@
 # Builds Kept and runs its tests on every push and pull request, on macOS 26,
 # Kept's minimum, so a test run also checks Kept still builds and works there.
 #
-# Two jobs. `test` is the quick one: swift build and swift test, where the
+# Three jobs. `test` is the quick one: swift build and swift test, where the
 # tests that run osxphotos skip for want of a bundled Python. `app` builds
 # Kept.app the way build.sh always does, Python and all, and runs those tests
-# against the osxphotos inside it.
+# against the osxphotos inside it. `xcode` builds and tests the Xcode project
+# the way a fresh clone does, so it can't drift from Package.swift unnoticed.
 name: Tests
 
 on:
@@ -72,3 +73,24 @@ jobs:
           KEPT_TEST_APP: ${{ github.workspace }}/app/.build/Kept.app
           KEPT_TEST_PYTHON: ${{ github.workspace }}/app/.build/Kept.app/Contents/Resources/python/bin/python3
         run: swift test --package-path app --filter 'ExportArgumentsTests|AppSealTests'
+
+  xcode:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Restore the bundled Python
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: app/.build/python-env
+          key: python-env-${{ runner.arch }}-${{ hashFiles('app/bundle-python.sh', 'app/python-requirements.lock') }}
+
+      - name: Build and test the Xcode project
+        # Signed to run locally, as a fresh clone is (app/Signing.xcconfig).
+        # The tests run hosted in the app, the way Xcode runs them.
+        run: >-
+          xcodebuild -project app/Kept.xcodeproj -scheme Kept -configuration Debug
+          -derivedDataPath "$RUNNER_TEMP/DerivedData" test

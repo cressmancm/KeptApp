@@ -1,0 +1,17 @@
+// Copy to Signing.local.xcconfig (git ignores it) and pick one of these.
+//
+// With an Apple Developer team: put in your team ID, from developer.apple.com →
+// Account → Membership details. Xcode signs with your Apple Development
+// certificate and makes the provisioning profile itself.
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+CODE_SIGN_IDENTITY = Apple Development
+
+// Without one: the self-signed certificate ./make-cert.sh makes. Unlike
+// signing to run locally, it stays the same from build to build, so Full Disk
+// Access only has to be turned on once.
+// It has no Team ID, so the hardened runtime, which only loads libraries from
+// the app's own team, would refuse Xcode's debug library and the tests; these
+// builds go without it. Builds from build.sh, and releases, keep it.
+// CODE_SIGN_STYLE = Manual
+// CODE_SIGN_IDENTITY = Kept Dev
+// ENABLE_HARDENED_RUNTIME = NO
