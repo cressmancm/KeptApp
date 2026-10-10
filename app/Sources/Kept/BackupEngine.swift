@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-import IOKit.ps
 import IOKit.pwr_mgt
 import Synchronization
 
@@ -48,6 +47,7 @@ actor BackupEngine {
     private let command: CommandRunner
     private let pythonOverride: URL?
     private let workingDirectory: URL
+    private let appBundle: URL
     private let stop = StopSignal()
     /// Every call that touches the backup folder and can block on a share that
     /// stopped answering. See BlockingLane.
@@ -58,11 +58,13 @@ actor BackupEngine {
         timing: Timing = Timing(),
         python: URL? = nil,
         workingDirectory: URL = Config.appSupportDir,
+        appBundle: URL = Bundle.main.bundleURL,
         command: CommandRunner? = nil
     ) {
         self.timing = timing
         self.pythonOverride = python
         self.workingDirectory = workingDirectory
+        self.appBundle = appBundle
         self.command = command ?? { executable, arguments, timeout, stop in
             await ShellCommand.run(executable, arguments, timeout: timeout, stop: stop)
         }
@@ -114,7 +116,11 @@ actor BackupEngine {
         if sleepAssertion == nil {
             runLog.log("Warning: could not take a PreventSystemSleep assertion.")
         }
-        if !Self.isOnACPower() {
+        // PowerSource, shared with the battery rule that decides whether an
+        // unattended backup starts at all, so the two never disagree. This
+        // used to be a copy that took an unknown power source for battery,
+        // where the rule takes it for mains.
+        if !PowerSource.isOnAC {
             // The assertion is honoured on AC only. On battery the system will
             // sleep mid-export and drop the share, so say so in the log rather
             // than leave a baffling "Permission denied: /Volumes/..." later.
@@ -152,6 +158,7 @@ actor BackupEngine {
         }
 
         do {
+            try await checkOwnFiles(runLog)
             try await checkLibraryAccess(runLog)
             try await ensureDestinationReady(destination, runLog)
             try throwIfStopped()
@@ -202,6 +209,24 @@ actor BackupEngine {
         RunHistory.upsert(record)
         await Self.notify(record, destination: destination)
         return record
+    }
+
+    // MARK: - Kept's own files
+
+    /// First of all: a changed bundle would run the change with Full Disk
+    /// Access (AppSeal). Off the actor, on a thread of its own.
+    func checkOwnFiles(_ runLog: RunLog) async throws {
+        let bundle = appBundle
+        let check = await BlockingLane().run(timeout: 120) { AppSeal.isIntact(bundle) }
+        switch check {
+        case .finished(true?), .finished(nil):
+            return
+        case .finished(false?):
+            runLog.log("Kept's signature doesn't match its files: \(bundle.path)")
+            throw BackupError("Part of Kept has been changed. Reinstall it.", kind: .setupFailed)
+        case .timedOut, .busy:
+            throw BackupError("Kept couldn't check its own files. Try again.", kind: .setupFailed)
+        }
     }
 
     // MARK: - Library access
@@ -832,12 +857,6 @@ actor BackupEngine {
             reason as CFString,
             &assertionID)
         return status == kIOReturnSuccess ? assertionID : nil
-    }
-
-    private static func isOnACPower() -> Bool {
-        guard let source = IOPSGetProvidingPowerSourceType(nil)?.takeRetainedValue()
-        else { return false }
-        return (source as String) == kIOPMACPowerKey
     }
 
     // MARK: - Notifications

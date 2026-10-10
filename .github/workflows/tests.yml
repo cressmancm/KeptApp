@@ -65,7 +65,10 @@ jobs:
         # runtime and that the bundled osxphotos starts under it.
         run: KEPT_SIGN_IDENTITY=- app/build.sh --no-install
 
-      - name: Test osxphotos inside the built app
+      - name: Test the built app
+        # osxphotos inside it, run with Kept's real arguments, and the check
+        # before every backup that the app's files match its signature.
         env:
+          KEPT_TEST_APP: ${{ github.workspace }}/app/.build/Kept.app
           KEPT_TEST_PYTHON: ${{ github.workspace }}/app/.build/Kept.app/Contents/Resources/python/bin/python3
-        run: swift test --package-path app --filter ExportArgumentsTests
+        run: swift test --package-path app --filter 'ExportArgumentsTests|AppSealTests'

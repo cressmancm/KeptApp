@@ -106,6 +106,31 @@ final class UninstallTests: XCTestCase {
             Set(try fm.contentsOfDirectory(atPath: dir.path)), Set(kept))
     }
 
+    /// Application Support/Kept as a link to some other folder: keeping the
+    /// index must not empty the folder it points at. Kept has Full Disk
+    /// Access, so following the link would delete what the planter couldn't.
+    func testKeepingTheExportDatabaseNeverFollowsALink() async throws {
+        let fm = FileManager.default
+        let scratch = fm.temporaryDirectory.appending(path: "KeptUninstallLink-\(UUID().uuidString)")
+        let victim = scratch.appending(path: "Documents")
+        let link = scratch.appending(path: "Kept")
+        try fm.createDirectory(at: victim.appending(path: "Taxes"), withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: victim.appending(path: "Taxes/2025.pdf"))
+        try Data("x".utf8).write(to: victim.appending(path: "notes.txt"))
+        try fm.createSymbolicLink(at: link, withDestinationURL: victim)
+        defer { try? fm.removeItem(at: scratch) }
+
+        let outcome = await Uninstall.perform([
+            Uninstall.Item(label: "test", target: .directoryKeepingExportDatabase(link))
+        ])
+
+        XCTAssertFalse(outcome.isClean)
+        XCTAssertEqual(outcome.failed.first?.reason, "It's a link, so Kept didn't follow it.")
+        XCTAssertEqual(
+            Set(try fm.contentsOfDirectory(atPath: victim.path)), ["Taxes", "notes.txt"])
+        XCTAssertTrue(fm.fileExists(atPath: victim.appending(path: "Taxes/2025.pdf").path))
+    }
+
     /// Everything Kept installs has to be on the list, or an uninstall leaves
     /// the exact debris it exists to clear.
     func testPlanCoversEverythingKeptInstalls() {

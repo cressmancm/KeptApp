@@ -48,7 +48,7 @@ flowchart TD
 - **Nothing blocks the cooperative pool.** Child processes go through `ShellCommand`, which drains both pipes on threads of their own and SIGKILLs on timeout. Calls that can hang on a share that stopped answering (`statfs`, existence checks, writes into the backup folder) go through a `BlockingLane`: their own thread, one at a time, with a timeout.
 - **Stop reaches every step.** Each child the engine starts registers with a `StopSignal`, which kills it when the user stops the backup.
 - **The backup folder is treated as hostile.** Anyone who can write to the share can plant links in it. `RemovedPhotos` and `NoFollow` move and delete through open folder descriptors and never follow a link. The saved folder setting is sealed with a key in the keychain (`SettingsSeal`, `DestinationStore`), and the disk or share is checked against the one chosen before every backup (`Destination.volumeMismatch`).
-- **Children get a fixed environment** (`ChildEnvironment`), and Python runs isolated (`-I -B`), because they inherit Kept's Full Disk Access.
+- **Children get a fixed environment** (`ChildEnvironment`), and Python runs isolated (`-I -B`), because they inherit Kept's Full Disk Access. Before each backup the engine checks the app's own signature (`AppSeal`), since Python would run an edited `.py` file without complaint.
 - **State is never kept in the backup folder.** The mirror moves aside anything osxphotos didn't put there.
 
 ## Where state lives

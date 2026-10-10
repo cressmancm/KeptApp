@@ -62,12 +62,24 @@ enum MenuBarGlyph {
     /// it drew a black glyph on a black bar and the icon vanished, leaving only
     /// a floating red dot. There is no API to read a MenuBarExtra's own
     /// appearance, so the colour had to go, and the state moved into the symbol.
+    ///
+    /// Rendered once per symbol and screen scale, then reused. The scene
+    /// rebuilds its label on every progress update, about three times a
+    /// second during a backup, and each rebuild used to render the glyph
+    /// again for an icon that hadn't changed.
     @MainActor
     static func image(symbol: String) -> NSImage? {
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        let key = "\(symbol)@\(scale)"
+        if let cached = cache[key] { return cached }
         let renderer = ImageRenderer(content: MenuBarGlyphContent(symbol: symbol))
-        renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
+        renderer.scale = scale
         guard let image = renderer.nsImage else { return nil }
         image.isTemplate = true
+        cache[key] = image
         return image
     }
+
+    /// At most five symbols times the scales of the screens in use.
+    @MainActor private static var cache: [String: NSImage] = [:]
 }

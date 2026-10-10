@@ -236,21 +236,44 @@ enum Uninstall {
             try removeIfPresent(url)
 
         case .directoryKeepingExportDatabase(let url):
-            guard FileManager.default.fileExists(atPath: url.path) else { return }
-            // Hidden files included: the stale .backup.pid lock is one.
-            let entries = try FileManager.default.contentsOfDirectory(
-                at: url, includingPropertiesForKeys: nil)
-            // Every entry is attempted before reporting, in keeping with
-            // `perform` — one stubborn file shouldn't leave the rest behind.
-            var firstError: Error?
-            for entry in entries where !isExportDatabase(entry.lastPathComponent) {
-                do {
-                    try FileManager.default.removeItem(at: entry)
-                } catch {
-                    firstError = firstError ?? error
-                }
+            // The one removal that goes inside the folder rather than taking
+            // it whole, so it works through open folders and never a link
+            // (NoFollow). Listing and deleting by path followed a link: with
+            // Application Support/Kept pointing at ~/Documents, keeping the
+            // index would have emptied Documents, with Full Disk Access.
+            let parentPath = url.deletingLastPathComponent().path
+            guard let parent = try? NoFollow.openRoot(parentPath) else { return }
+            defer { close(parent) }
+            switch NoFollow.kind(of: url.lastPathComponent, in: parent) {
+            case .missing: return
+            case .link: throw UninstallError(message: "It's a link, so Kept didn't follow it.")
+            case .other: throw UninstallError(message: "It isn't a folder.")
+            case .directory: break
             }
-            if let firstError { throw firstError }
+            let folder: Int32
+            do {
+                folder = try NoFollow.openDirectory(
+                    [url.lastPathComponent], from: parent, creating: false, displayRoot: parentPath)
+            } catch let failure as NoFollow.Failure {
+                throw UninstallError(message: failure.description)
+            }
+            defer { close(folder) }
+            // Hidden files included: the stale .backup.pid lock is one. Every
+            // entry is attempted before reporting, in keeping with `perform` —
+            // one stubborn file shouldn't leave the rest behind.
+            var firstError: String?
+            do {
+                for name in try NoFollow.entries(of: folder) where !isExportDatabase(name) {
+                    do {
+                        try NoFollow.removeTree(name, in: folder)
+                    } catch {
+                        firstError = firstError ?? String(describing: error)
+                    }
+                }
+            } catch {
+                firstError = firstError ?? String(describing: error)
+            }
+            if let firstError { throw UninstallError(message: firstError) }
 
         case .defaultsDomain(let name):
             UserDefaults.standard.removePersistentDomain(forName: name)

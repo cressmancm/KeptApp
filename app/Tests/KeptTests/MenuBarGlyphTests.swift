@@ -23,4 +23,13 @@ final class MenuBarGlyphTests: XCTestCase {
         XCTAssertEqual(Set(sizes.map(\.width)).count, 1, "glyph width varies by state: \(sizes)")
         XCTAssertEqual(Set(sizes.map(\.height)).count, 1, "glyph height varies by state: \(sizes)")
     }
+
+    /// The label is rebuilt about three times a second during a backup; the
+    /// glyph is rendered once and reused.
+    func testAGlyphIsRenderedOnce() {
+        let symbol = BackupController.GlyphState.running.symbol
+        let first = MenuBarGlyph.image(symbol: symbol)
+        XCTAssertNotNil(first)
+        XCTAssertTrue(first === MenuBarGlyph.image(symbol: symbol))
+    }
 }
