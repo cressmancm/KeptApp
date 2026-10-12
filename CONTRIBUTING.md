@@ -34,7 +34,7 @@ cd app
 ./build.sh           # builds, signs, installs to /Applications and opens Kept
 ```
 
-Or, from `app`, `make setup` then `make install`; `make` on its own lists the rest. `make-cert.sh` may ask for your login password; it adds a code-signing certificate trusted for your account only. `bundle-python.sh` checks the Python download against a pinned SHA-256 and installs every package from `python-requirements.lock` with hashes.
+Or, from `app`, `make setup` then `make install`; `make` on its own lists the rest. `make-cert.sh` may ask for your login password; it adds a code-signing certificate trusted for your account only. `bundle-python.sh` checks the Python download against a pinned SHA-256 and installs every package from `python-requirements.lock` with hashes. It reuses `.build/python-env` until the script or the lock changes, then builds it again, and checks the packages against the lock either way (`check-python-lock.py`). `--refresh` rebuilds it regardless.
 
 `build.sh` options:
 

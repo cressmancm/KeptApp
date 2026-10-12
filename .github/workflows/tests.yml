@@ -56,7 +56,9 @@ jobs:
       - name: Restore the bundled Python
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: app/.build/python-env
+          path: |
+            app/.build/python-env
+            app/.build/python-env.inputs
           # Built again when the interpreter pin or the package lock changes.
           key: python-env-${{ runner.arch }}-${{ hashFiles('app/bundle-python.sh', 'app/python-requirements.lock') }}
 
@@ -85,7 +87,9 @@ jobs:
       - name: Restore the bundled Python
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: app/.build/python-env
+          path: |
+            app/.build/python-env
+            app/.build/python-env.inputs
           key: python-env-${{ runner.arch }}-${{ hashFiles('app/bundle-python.sh', 'app/python-requirements.lock') }}
 
       - name: Build and test the Xcode project

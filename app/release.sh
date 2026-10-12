@@ -43,6 +43,12 @@ echo "==> Building with '$IDENTITY'"
 KEPT_RELEASE=1 KEPT_REQUIRE_PROFILE=1 KEPT_SIGN_IDENTITY="$IDENTITY" \
     "$APP_DIR/build.sh" --no-install
 
+# The packages that ship, checked against the lock. -B so the check can't
+# write bytecode into the bundle it has just signed.
+echo "==> Checking the bundled Python against the lock"
+"$BUNDLE/Contents/Resources/python/bin/python3" -I -B \
+    "$APP_DIR/check-python-lock.py" "$APP_DIR/python-requirements.lock"
+
 PLIST="$BUNDLE/Contents/Info.plist"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$PLIST")"
 BUILD="$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$PLIST")"

@@ -2,7 +2,8 @@
 # bundle-python.sh — build the relocatable Python + osxphotos environment that
 # gets shipped inside Kept.app, so users don't install anything.
 #
-# Produces app/.build/python-env/ (cached; pass --refresh to rebuild).
+# Produces app/.build/python-env/ (cached; pass --refresh to rebuild). The cache
+# is rebuilt on its own when this script or the lock changes.
 # Installs from python-requirements.lock; --unlocked resolves afresh instead.
 # build.sh copies it into the bundle at Contents/Resources/python/.
 set -euo pipefail
@@ -20,7 +21,7 @@ PBS_URL="https://github.com/astral-sh/python-build-standalone/releases/download/
 # From the release's SHA256SUMS. Checked before the archive is unpacked: the
 # interpreter ends up running with Kept's Full Disk Access.
 PBS_SHA256="dca7c3bac21f023cf294705b27f4f3e9c70399c40790ebb81e8d0eff15b00770"
-OSXPHOTOS_VERSION="0.76.1"
+OSXPHOTOS_VERSION="0.77.2"
 # Every package, osxphotos' dependencies included, pinned with hashes. Without
 # it `pip install osxphotos==…` resolved ~75 dependencies to whatever was newest
 # on the day, so any one of them publishing a bad release would have shipped,
@@ -36,9 +37,27 @@ for arg in "$@"; do
         *) echo "!!  Unknown option: $arg"; exit 2 ;;
     esac
 done
+
+# What the env was built from: this script (the interpreter pin, the osxphotos
+# version, the pruning), the lock, and whether the lock was used. A cached env
+# used to be reused whatever had changed, so a lock that moved a package
+# forward built and shipped the old one. Kept beside the env, not in it, so it
+# isn't copied into the app.
+STAMP="$APP_DIR/.build/python-env.inputs"
+INPUTS="$(cat "${0:A}" "$LOCK_FILE" | shasum -a 256 | cut -d' ' -f1) unlocked=$UNLOCKED"
+
+check_lock() {
+    "$1/bin/python3" -I -B "$APP_DIR/check-python-lock.py" "$LOCK_FILE"
+}
+
 if [[ -x "$ENV_DIR/bin/python3" ]]; then
-    echo "==> Cached python env exists ($ENV_DIR); skipping. Use --refresh to rebuild."
-    exit 0
+    if [[ -f "$STAMP" && "$(<"$STAMP")" == "$INPUTS" ]] \
+        && { [[ $UNLOCKED -eq 1 ]] || check_lock "$ENV_DIR"; }; then
+        echo "==> Cached python env is current ($ENV_DIR); skipping. Use --refresh to rebuild."
+        exit 0
+    fi
+    echo "==> The cached python env doesn't match this script and the lock; rebuilding"
+    rm -rf "$ENV_DIR" "$STAMP"
 fi
 
 mkdir -p "$APP_DIR/.build"
@@ -84,5 +103,11 @@ if [[ "$VERSION_OUT" != *"$OSXPHOTOS_VERSION"* ]]; then
     exit 1
 fi
 
+if [[ $UNLOCKED -eq 0 ]]; then
+    echo "==> Checking the packages against the lock"
+    check_lock "$TMP/python"
+fi
+
 mv "$TMP/python" "$ENV_DIR"
+print -r -- "$INPUTS" > "$STAMP"
 echo "==> Done: $ENV_DIR ($(du -sh "$ENV_DIR" | cut -f1))"
