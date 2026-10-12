@@ -90,7 +90,11 @@ private struct GeneralSettings: View {
                 HStack(spacing: 10) {
                     mountStatus
                     Spacer(minLength: 12)
+                    // A backup carries on to the folder it started with, so the
+                    // folder waits until it's done.
                     Button("Change…") { controller.chooseDestination() }
+                        .disabled(controller.isRunning || controller.isUninstalling)
+                        .help(controller.isRunning ? "You can change it after this backup." : "")
                 }
             }
 
@@ -119,6 +123,13 @@ private struct GeneralSettings: View {
             SettingsRow(label: "Options:") {
                 VStack(alignment: .leading, spacing: 9) {
                     Toggle("Open at login", isOn: $controller.openAtLogin)
+                    if let error = controller.loginItemError {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: 330, alignment: .leading)
+                    }
                     Toggle("Notify me when a backup fails", isOn: $controller.notifyOnFailure)
                     Toggle("Notify me after every backup", isOn: $controller.notifyAlways)
 

@@ -91,7 +91,24 @@ private struct HealthyPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             PanelSection {
-                if let last = controller.lastSuccess {
+                if let last = controller.lastSuccess, last.isPartial {
+                    // Never the green tick: osxphotos exits cleanly over items it
+                    // couldn't copy, and the tick used to say "backed up" over
+                    // thousands of photos that weren't.
+                    StatusRow(
+                        symbol: "exclamationmark.triangle.fill", tint: .orange,
+                        title: "Some photos aren't backed up",
+                        subtitle: RunFormatting.healthySubtitle(last, now: now))
+                    InfoCard(spacing: 6) {
+                        ForEach(RunFormatting.partialDetails(last), id: \.self) { detail in
+                            Text(.init(detail))
+                                .font(.caption)
+                                .foregroundStyle(Color.primary.opacity(0.72))
+                                .lineSpacing(3)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                } else if let last = controller.lastSuccess {
                     StatusRow(
                         symbol: "checkmark.circle.fill", tint: .green,
                         title: "Your photos are backed up",
@@ -145,6 +162,17 @@ private struct DestinationFacts: View {
                 symbol: "clock",
                 label: RunFormatting.nextRunPhrase(
                     controller.nextRun, cadence: controller.cadence, now: now))
+            // The daily check and catch-up read the history, so a history that
+            // isn't saving would quietly make both of them wrong.
+            if controller.historyIsNotSaving {
+                Button { controller.openLastLog() } label: {
+                    FactRow(
+                        symbol: "exclamationmark.triangle", label: "Backup history can't be saved",
+                        value: "Open Log")
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
             // The panel is where "backed up" is read, so it's where a warning
             // that can't arrive gets said. Settings says it too.
             if controller.notificationsAreOff {

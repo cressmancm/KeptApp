@@ -11,6 +11,7 @@ The backup is ordinary files in date folders (`2024/03/01/IMG_1234.HEIC`), so yo
 - **Nightly, weekly or manual backups.** After the first one, only new and changed photos are copied.
 - **Catches up on missed nights.** If the Mac was asleep or on battery, Kept backs up when it wakes or is plugged in. A failed backup is retried an hour later, up to twice.
 - **Keeps deleted photos for a while.** A photo deleted from your library moves to `Removed from Photos` in the backup and is deleted after 30, 90 or 365 days.
+- **Says when files fail to copy.** A backup that couldn't copy some files says how many instead of showing a green tick, and the next backup tries them again.
 - **Warns you if backups stop.** A daily check runs even when Kept isn't open, and posts a notification if the last good backup is older than you allow.
 - **Explains problems in plain words.** "Couldn't reach nas.local at 2:04 AM. Check that it's on and connected, and Kept will try again."
 - **Removes itself cleanly.** Settings → Advanced → Remove Kept… takes its login item, daily check, settings, history and logs with it, and never touches your backup.
@@ -21,7 +22,13 @@ Your photos never leave your Mac and your network: no accounts, no cloud, no ana
 
 - macOS 26 or later, on Apple silicon (M1 or later)
 - Full Disk Access for Kept, which you turn on during setup
+- Your originals on this Mac: in Photos settings, choose Download Originals to this Mac (see [Limitations](#limitations))
 - A backup folder with room for your library
+
+## Limitations
+
+- **Kept copies the originals that are on this Mac, and doesn't warn about the rest.** If Photos is set to Optimize Mac Storage, some full-size originals are only in iCloud, and those aren't in the backup. osxphotos counts them together with shared photos it couldn't find (next point), which are missing in every library with shared albums, so Kept doesn't report the count at all; setup mentions this once instead. To back up everything, choose Download Originals to this Mac in Photos settings before the first backup.
+- **Shared photos are copied only when Photos keeps them on the Mac.** Shared albums, shared collections and Shared with You hold copies of photos that belong to other libraries, or of your own. Photos keeps only some of their originals locally, whatever the setting, so the backup has only those.
 
 ## Download
 

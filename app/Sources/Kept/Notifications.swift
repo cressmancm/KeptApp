@@ -16,6 +16,8 @@ enum KeptNotification {
     enum Kind: Sendable {
         case backupFailed(message: String)
         case backupComplete(body: String)
+        /// Finished, but some files couldn't be copied.
+        case backupIncomplete(message: String)
         case stale(message: String)
     }
 
@@ -29,6 +31,10 @@ enum KeptNotification {
         case .backupComplete(let body):
             content.title = "Backup complete"
             content.body = body
+        case .backupIncomplete(let message):
+            content.title = "Backup incomplete"
+            content.body = message
+            content.sound = UNNotificationSound(named: UNNotificationSoundName("Basso"))
         case .stale(let message):
             content.title = "Backups have stopped"
             content.body = message

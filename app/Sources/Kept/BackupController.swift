@@ -107,6 +107,13 @@ final class BackupController {
     /// Settings window updates the moment the schedule changes.
     var nextRun: Date?
     var lastSuccess: RunRecord? { displayHistory.last(where: { $0.outcome == .success }) }
+    /// The runs for the current backup folder. Everything that says how
+    /// protected the library is reads these, so a newly chosen folder shows
+    /// as never backed up until a backup there finishes.
+    var folderHistory: [RunRecord] { history.runs(for: destination) }
+    /// The last write to the history failed, so the daily check and catch-up
+    /// are reading an old one. Cleared by the next write that lands.
+    private(set) var historyIsNotSaving = false
     /// Items osxphotos counted at the last good run. Used only to size up the
     /// first-copy warning ("about 46,920 items"); it is NOT the number the
     /// Photos app shows, so it is never presented as a library total.
@@ -185,7 +192,7 @@ final class BackupController {
 
         if destination == nil {
             status = .needsDestination
-        } else if let last = history.last, last.outcome == .failed {
+        } else if let last = folderHistory.last, last.outcome == .failed {
             // A failure that happened before the last quit is still the truth
             // about the library, so the panel opens on it rather than implying
             // all is well. A missing-access failure opens on the paused panel;
@@ -195,6 +202,9 @@ final class BackupController {
                 : .failed(last.failureKind ?? .setupFailed, last.message ?? "Backup failed")
         }
         scheduler.onFire = { [weak self] trigger in self?.startBackup(trigger) }
+        scheduler.loadHistory = { [weak self] in
+            RunHistory.load().runs(for: self?.destination)
+        }
         scheduler.onRearm = { [weak self] fire in self?.nextRun = fire }
         // Event-driven, not polled: plugging in is the signal that a deferred
         // or failed night can finally be made good.
@@ -306,14 +316,37 @@ final class BackupController {
     /// The folder picker, with its refusals and the non-empty-folder warning
     /// (DestinationPicker). A NAS folder also gets the reconnect tried once,
     /// so any Automation prompt appears now rather than at 2 AM.
+    ///
+    /// Not while a backup is running: that backup carries on to the folder it
+    /// started with, and the panel would say it was going somewhere else.
+    ///
+    /// The folder only changes once it's saved, sealed and reads back. If the
+    /// keychain won't seal it, the folder Kept had stays, and is sealed again
+    /// in case the attempt cost it its key.
     func chooseDestination() {
-        guard let picked = DestinationPicker.choose(
-            current: destination, retentionDays: removedRetentionDays)
+        guard !isRunning, !isUninstalling,
+            let chosen = DestinationPicker.choose(
+                current: destination, retentionDays: removedRetentionDays)
         else { return }
+        // A backup that started while the open panel was up.
+        guard !isRunning else { return }
+        let picked = Destination.adopting(chosen, replacing: destination)
 
         clearPreview()
-        DestinationStore.save(picked)
+        guard DestinationStore.save(picked), DestinationStore.load() == picked else {
+            if let destination { DestinationStore.save(destination, sealingKey: SettingsSeal.key()) }
+            DestinationPicker.cantSaveAlert(for: picked.displayName, previous: destination)
+                .runModal()
+            return
+        }
+        let isNewFolder = picked.id != destination?.id
         destination = picked
+        if isNewFolder {
+            // The last folder's failure isn't this one's.
+            retryTask?.cancel()
+            retryTask = nil
+            if status.isFailed { status = .idle }
+        }
         if status == .needsDestination { status = .idle }
         scheduler.rearm()
         refreshDestinationStats()
@@ -395,7 +428,7 @@ final class BackupController {
     /// see it.
     private func scheduleFailureRetry() {
         retryTask?.cancel()
-        let history = RunHistory.load()
+        let history = RunHistory.load().runs(for: destination)
         guard let window = scheduler.attemptWindowStart(history),
             Scheduler.failedAttempts(history, since: window) < Config.maxAttemptsPerSlot
         else {
@@ -423,10 +456,16 @@ final class BackupController {
         // The real trigger, not a hardcoded .scheduled: a deferral at 17:25 that
         // claims to be the 2 AM job makes the history lie about what happened.
         var record = RunRecord(trigger: trigger, start: .now)
+        record.destinationID = destination?.id
         record.end = .now
         record.outcome = .skipped
         record.message = "Skipped — on battery power"
-        RunHistory.upsert(record)
+        do {
+            try RunHistory.upsert(record)
+            historyIsNotSaving = false
+        } catch {
+            historyIsNotSaving = true
+        }
         history = RunHistory.load()
         status = .waitingForPower
     }
@@ -477,6 +516,11 @@ final class BackupController {
         isRunning = false
         runStartedAt = nil
         history = RunHistory.load()
+        // Read back rather than trusted: the engine wrote it, and logged it
+        // if it couldn't.
+        historyIsNotSaving = !history.contains {
+            $0.id == record.id && $0.outcome == record.outcome
+        }
         switch record.outcome {
         case .failed where record.failureKind == .libraryAccess:
             // The paused panel, not the failed one: it names the fix and clears
@@ -654,9 +698,16 @@ final class BackupController {
 
     private func registerLoginItemOnce() {
         let key = "didRegisterLoginItem"
+        // Marked done only once macOS has it. A registration that failed used
+        // to be marked done anyway, so it was never tried again.
         if !UserDefaults.standard.bool(forKey: key) {
-            try? SMAppService.mainApp.register()
-            UserDefaults.standard.set(true, forKey: key)
+            do {
+                try SMAppService.mainApp.register()
+                UserDefaults.standard.set(true, forKey: key)
+                loginItemError = nil
+            } catch {
+                loginItemError = Self.loginItemErrorText
+            }
         }
         launchAtLogin = SMAppService.mainApp.status == .enabled
     }
@@ -676,9 +727,19 @@ final class BackupController {
             } else {
                 try SMAppService.mainApp.unregister()
             }
-        } catch {}
+            loginItemError = nil
+        } catch {
+            loginItemError = Self.loginItemErrorText
+        }
         launchAtLogin = SMAppService.mainApp.status == .enabled
     }
+
+    /// Said under the checkbox when macOS refused the change, which otherwise
+    /// only shows as a checkbox that didn't stay the way it was set.
+    private(set) var loginItemError: String?
+    static let loginItemErrorText =
+        "macOS didn't allow this. Check Login Items in System Settings."
+
 
     // MARK: - Onboarding
 
@@ -837,7 +898,7 @@ final class BackupController {
         #if KEPT_REVIEW_TOOLS
         if let preview { return preview.history }
         #endif
-        return history
+        return folderHistory
     }
 
     var displayLogTail: [String] {

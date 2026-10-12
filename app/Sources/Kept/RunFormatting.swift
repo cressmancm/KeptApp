@@ -46,6 +46,7 @@ enum RunFormatting {
         case .success:
             var parts: [String] = []
             if let exported = record.exported { parts.append("\(exported) new") }
+            if let notCopied = notCopied(record) { parts.append(notCopied) }
             if let elapsed = record.duration { parts.append(duration(elapsed)) }
             return parts.isEmpty ? "Done" : parts.joined(separator: " · ")
         case .failed: return "Failed"
@@ -253,10 +254,37 @@ enum RunFormatting {
     /// than a row, with no duration, because it shares the line with the
     /// section's name.
     static func lastRunSummary(_ record: RunRecord, now: Date = .now, calendar: Calendar = .current) -> String {
-        let detail: String = switch record.outcome {
-        case .success: record.exported.map { "\($0) new" } ?? "Done"
+        var detail: String = switch record.outcome {
+        case .success:
+            [record.exported.map { "\($0) new" }, notCopied(record)]
+                .compactMap { $0 }.joined(separator: " · ")
         default: rowDetail(record)
         }
+        if detail.isEmpty { detail = "Done" }
         return "\(friendlyDate(record.start, now: now, calendar: calendar)) · \(detail)"
+    }
+
+    // MARK: - Incomplete backups
+
+    /// "3 not copied", for a backup that finished but couldn't copy some
+    /// files; nil for any other.
+    static func notCopied(_ record: RunRecord) -> String? {
+        guard record.isPartial else { return nil }
+        return "\((record.errors ?? 0).formatted()) not copied"
+    }
+
+    /// What the panel says under "Some photos aren't backed up". Markdown:
+    /// only copy written here, never engine text.
+    static func partialDetails(_ record: RunRecord) -> [String] {
+        guard record.isPartial, let errors = record.errors else { return [] }
+        return [errorsSentence(errors)]
+    }
+
+    /// Files osxphotos tried and failed to copy. They aren't in the backup
+    /// index, so the next backup tries them again.
+    static func errorsSentence(_ count: Int) -> String {
+        count == 1
+            ? "1 item couldn't be copied. The next backup tries it again."
+            : "\(count.formatted()) items couldn't be copied. The next backup tries them again."
     }
 }

@@ -76,6 +76,22 @@ enum DestinationPicker {
         return alert
     }
 
+    /// The folder couldn't be saved with its seal, because the keychain is
+    /// locked or refused. Nothing changed, and the alert says where backups
+    /// still go.
+    static func cantSaveAlert(for name: String, previous: Destination? = nil) -> NSAlert {
+        let alert = NSAlert()
+        alert.messageText = "Kept couldn't save “\(name)” as the backup folder"
+        alert.informativeText = if let previous {
+            "Your keychain didn't allow it. Backups still go to “\(previous.displayName)”."
+        } else {
+            "Your keychain didn't allow it. Try again."
+        }
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        return alert
+    }
+
     static func openAutomationSettings() {
         if let url = URL(
             string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")

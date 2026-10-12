@@ -162,19 +162,27 @@ enum NoFollow {
     }
 
     /// The contents of a regular file in an open folder, or nil when there is
-    /// none — a link counts as none, so it is never read through.
+    /// none. A link counts as none, so it is never read through, and so does
+    /// a special file: a named pipe, socket or device.
+    ///
+    /// Opened non-blocking. Opening a named pipe for reading otherwise waits
+    /// for a writer, which never comes: one planted at `.osxphotos_keep` hung
+    /// the backup before the type check below could refuse it. Reads from a
+    /// regular file ignore the flag.
     static func readRegularFile(_ name: String, in directory: Int32) throws -> Data? {
-        let descriptor = openat(directory, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        let descriptor = openat(directory, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard descriptor >= 0 else {
             if errno == ENOENT || errno == ELOOP { return nil }
             throw Failure.posix("Couldn't read \(name)")
         }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         var info = stat()
-        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG else {
-            throw Failure("\(name) isn't a regular file")
+        guard fstat(descriptor, &info) == 0 else { throw Failure.posix("Couldn't read \(name)") }
+        switch info.st_mode & S_IFMT {
+        case S_IFREG: return try handle.readToEnd() ?? Data()
+        case S_IFDIR: throw Failure("\(name) isn't a regular file")
+        default: return nil
         }
-        return try handle.readToEnd() ?? Data()
     }
 
     /// Writes `data` as `name` in an open folder: to a fresh temporary file,

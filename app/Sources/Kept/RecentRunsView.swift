@@ -57,6 +57,11 @@ struct RecentRunsView: View {
 
 /// The dot each run row starts with.
 enum RunOutcomeStyle {
+    static func color(for record: RunRecord) -> Color {
+        // Orange, like the panel: it ran, but didn't copy everything.
+        record.isPartial ? .orange : color(for: record.outcome)
+    }
+
     static func color(for outcome: RunOutcome?) -> Color {
         switch outcome {
         case .success: .green
@@ -77,7 +82,7 @@ private struct RunRow: View {
         Button(action: action) {
             HStack(spacing: 7) {
                 Circle()
-                    .fill(RunOutcomeStyle.color(for: record.outcome))
+                    .fill(RunOutcomeStyle.color(for: record))
                     .frame(width: 6, height: 6)
                 Text(RunFormatting.time(record.start))
                 Spacer(minLength: 6)

@@ -49,13 +49,15 @@ flowchart TD
 - **Stop reaches every step.** Each child the engine starts registers with a `StopSignal`, which kills it when the user stops the backup.
 - **The backup folder is treated as hostile.** Anyone who can write to the share can plant links in it. `RemovedPhotos` and `NoFollow` move and delete through open folder descriptors and never follow a link. The saved folder setting is sealed with a key in the keychain (`SettingsSeal`, `DestinationStore`), and the disk or share is checked against the one chosen before every backup (`Destination.volumeMismatch`).
 - **Children get a fixed environment** (`ChildEnvironment`), and Python runs isolated (`-I -B`), because they inherit Kept's Full Disk Access. Before each backup the engine checks the app's own signature (`AppSeal`), since Python would run an edited `.py` file without complaint.
+- **A backup that couldn't copy files isn't green.** osxphotos exits 0 even when files failed, so the engine records the error count. Such a run is still `.success`, which keeps the schedule and the daily check honest about a backup having run, but `RunRecord.isPartial` keeps it from ever showing as a green tick. osxphotos' missing count is deliberately ignored: it lumps shared items, whose originals Photos never keeps on the Mac, in with the library's own, so it's high in any library with shared albums. The README's Limitations and the welcome screen cover Optimize Mac Storage instead.
+- **History belongs to a backup folder.** Each run records the folder's `Destination.id`, and everything that measures protection (the panel, catch-up, retries, the daily check) reads only the current folder's runs. A newly chosen folder has none until a backup there finishes. Runs from before ids existed have none, and belong to the folder chosen before then, which has none either.
 - **State is never kept in the backup folder.** The mirror moves aside anything osxphotos didn't put there.
 
 ## Where state lives
 
 | Where | What |
 |---|---|
-| `~/Library/Application Support/Kept/` | `export.db` (the backup index; lose it and the next backup copies everything again), `runs.json` (history), `report.csv`, `.backup.pid` (the lock) |
+| `~/Library/Application Support/Kept/` | `export.db` (the backup index; lose it and the next backup copies everything again), `runs.json` (history, each run naming its folder), `report.csv`, `.backup.pid` (the lock) |
 | `~/Library/Logs/Kept/` | One log per backup, stall samples, `access-test.log` |
 | Preferences, `com.chipcressman.Kept` | Settings, the sealed backup folder, setup state |
 | Keychain, `com.chipcressman.Kept.settings-seal` | The seal key: the data-protection keychain with a provisioning profile, the login keychain without |

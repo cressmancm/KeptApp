@@ -24,14 +24,14 @@ final class RunHistoryTests: XCTestCase {
         return record
     }
 
-    func testUpsertAppendsThenReplacesInPlace() {
+    func testUpsertAppendsThenReplacesInPlace() throws {
         var run = record(nil)
-        RunHistory.upsert(run, to: url)
+        try RunHistory.upsert(run, to: url)
         XCTAssertEqual(RunHistory.load(from: url).count, 1)
 
         run.outcome = .success
         run.exported = 12
-        RunHistory.upsert(run, to: url)
+        try RunHistory.upsert(run, to: url)
 
         let loaded = RunHistory.load(from: url)
         XCTAssertEqual(loaded.count, 1, "same id must update, not append a second row")
@@ -39,17 +39,17 @@ final class RunHistoryTests: XCTestCase {
         XCTAssertEqual(loaded[0].exported, 12)
     }
 
-    func testDistinctRunsBothPersist() {
-        RunHistory.upsert(record(.success), to: url)
-        RunHistory.upsert(record(.failed), to: url)
+    func testDistinctRunsBothPersist() throws {
+        try RunHistory.upsert(record(.success), to: url)
+        try RunHistory.upsert(record(.failed), to: url)
         XCTAssertEqual(RunHistory.load(from: url).count, 2)
     }
 
     /// The gap this whole scheme exists to close: a process that dies mid-run
     /// used to leave no trace, so an interrupted backup was indistinguishable
     /// from a night nothing was scheduled.
-    func testReconcileClosesOutARunLeftWithoutAnOutcome() {
-        RunHistory.upsert(record(nil), to: url)
+    func testReconcileClosesOutARunLeftWithoutAnOutcome() throws {
+        try RunHistory.upsert(record(nil), to: url)
         let now = Date(timeIntervalSince1970: 1_800_009_999)
 
         let reconciled = RunHistory.reconcileInterrupted(in: url, now: now)
@@ -62,9 +62,9 @@ final class RunHistoryTests: XCTestCase {
         XCTAssertEqual(RunHistory.load(from: url).first?.outcome, .interrupted)
     }
 
-    func testReconcileLeavesFinishedRunsAlone() {
-        RunHistory.upsert(record(.success), to: url)
-        RunHistory.upsert(record(.failed), to: url)
+    func testReconcileLeavesFinishedRunsAlone() throws {
+        try RunHistory.upsert(record(.success), to: url)
+        try RunHistory.upsert(record(.failed), to: url)
         let outcomes = RunHistory.reconcileInterrupted(in: url).map(\.outcome)
         XCTAssertEqual(outcomes, [.success, .failed])
     }
@@ -96,15 +96,15 @@ final class RunHistoryTests: XCTestCase {
     /// A long run of failures or battery deferrals must not push the last
     /// good backup out of the history: everything that says how old the
     /// backup is measures from it.
-    func testTrimmingNeverDropsTheLatestSuccess() {
+    func testTrimmingNeverDropsTheLatestSuccess() throws {
         let start = Date(timeIntervalSince1970: 1_800_000_000)
         var success = RunRecord(trigger: .scheduled, start: start)
         success.outcome = .success
-        RunHistory.upsert(success, to: url)
+        try RunHistory.upsert(success, to: url)
         for index in 1...(Config.historyLimit + 10) {
             var skipped = RunRecord(trigger: .catchUp, start: start + Double(index) * 3600)
             skipped.outcome = .skipped
-            RunHistory.upsert(skipped, to: url)
+            try RunHistory.upsert(skipped, to: url)
         }
         let loaded = RunHistory.load(from: url)
         XCTAssertEqual(loaded.count, Config.historyLimit)

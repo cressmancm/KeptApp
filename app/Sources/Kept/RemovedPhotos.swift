@@ -36,7 +36,7 @@ enum RemovedPhotos {
     static let backupRootVariable = "KEPT_BACKUP_ROOT"
 
     /// What osxphotos runs for each file. `{filepath|shell_quote}` is its own
-    /// template, quoted for the shell (verified against osxphotos 0.76.1 with a
+    /// template, quoted for the shell (verified against osxphotos 0.77.2 with a
     /// file named `it's a {pic}.jpg`).
     static let cleanupCommand =
         "\"$\(executableVariable)\" --hold-removed {filepath|shell_quote}"
@@ -209,7 +209,8 @@ enum RemovedPhotos {
     /// Read and written without following a link: anyone who can write to the
     /// share could otherwise make `.osxphotos_keep` a link to a text file on
     /// this Mac, and the rewrite would copy that file's contents onto the
-    /// share. A link there is replaced by a real file.
+    /// share. A link there is replaced by a real file, and so is a named pipe
+    /// or other special file, which reading would otherwise wait on forever.
     static func writeKeepRules(backupRoot: URL) throws {
         let name = ".osxphotos_keep"
         do {

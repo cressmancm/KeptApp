@@ -42,6 +42,25 @@ struct WelcomeScreen: View {
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: 330)
 
+            // Kept copies the originals on this Mac and says nothing about the
+            // rest: osxphotos counts every shared item as missing too, so its
+            // count can't tell a library short of its own originals from one
+            // with shared albums. Optimize Mac Storage is the one setting that
+            // leaves the library's own originals in iCloud, so it's said here,
+            // once, before the first backup.
+            Text(
+                """
+                If Photos is set to Optimize Mac Storage, choose **Download \
+                Originals to this Mac** so Kept can copy every photo.
+                """
+            )
+            .font(.system(size: 11.5))
+            .foregroundStyle(.secondary)
+            .lineSpacing(OnboardingMetrics.lineSpacing(size: 11.5, lineHeight: 1.5))
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: 330)
+
             OnboardingCard(
                 header: "SETUP TAKES TWO STEPS", spacing: 8,
                 radius: OnboardingMetrics.stepCardRadius

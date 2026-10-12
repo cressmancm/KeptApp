@@ -17,6 +17,14 @@ struct Destination: Codable, Equatable, Sendable {
     /// network share (`smbURL` identifies that), a volume without a UUID, and
     /// a folder chosen before Kept recorded one.
     var volumeUUID: String?
+    /// Which choice of folder this is. Runs record it, so a newly chosen
+    /// folder has no backups until one finishes there. nil for a folder
+    /// chosen before Kept kept it; the runs from then have none either.
+    var id: UUID?
+    /// When the folder was chosen, so the daily check can tell a folder that
+    /// has never been backed up from one that was only just chosen. nil for a
+    /// folder chosen before Kept kept it.
+    var chosenAt: Date?
 
     var displayName: String { URL(filePath: path).lastPathComponent }
 
@@ -47,6 +55,24 @@ extension Destination {
             smbURL: fstype == "smbfs" ? smbURL(fromMountFrom: mountFrom) : nil,
             mountPoint: isLocal ? nil : mountPoint,
             volumeUUID: uuid)
+    }
+
+    /// `picked`, as the folder Kept will now back up to. Choosing the current
+    /// folder again only refreshes what Kept knows about its disk, so it
+    /// keeps its identity and its backups; any other folder is new and starts
+    /// with none.
+    static func adopting(_ picked: Destination, replacing current: Destination?, now: Date = .now)
+        -> Destination
+    {
+        var adopted = picked
+        if let current, current.path == picked.path {
+            adopted.id = current.id
+            adopted.chosenAt = current.chosenAt
+        } else {
+            adopted.id = UUID()
+            adopted.chosenAt = now
+        }
+        return adopted
     }
 
     /// statfs reports an SMB source as "//user@host/share". A space is
@@ -318,16 +344,30 @@ enum DestinationStore {
         return try? JSONDecoder().decode(Destination.self, from: data)
     }
 
+    /// The saved folder without checking its seal, and without touching the
+    /// keychain. Only for the daily check, which uses it to pick out the
+    /// folder's backups from the history and decides nothing about where
+    /// anything is written. Anything that can rewrite the setting can rewrite
+    /// the history too, so the seal would add nothing there.
+    static func peek(defaults: UserDefaults = .standard) -> Destination? {
+        defaults.data(forKey: key).flatMap { try? JSONDecoder().decode(Destination.self, from: $0) }
+    }
+
+    /// Saves the folder with its seal, or nothing at all. Returns false when
+    /// there's no key to seal it with — the keychain locked or refusing — in
+    /// which case what was saved before is left as it was. Saving it unsealed
+    /// used to look like success until the next launch, which then found no
+    /// folder at all.
+    @discardableResult
     static func save(
         _ destination: Destination,
-        defaults: UserDefaults = .standard, sealingKey: SymmetricKey? = SettingsSeal.rotatedKey()
-    ) {
-        guard let data = try? JSONEncoder().encode(destination) else { return }
+        defaults: UserDefaults = .standard,
+        sealingKey: @autoclosure () -> SymmetricKey? = SettingsSeal.rotatedKey()
+    ) -> Bool {
+        guard let data = try? JSONEncoder().encode(destination), let sealingKey = sealingKey()
+        else { return false }
         defaults.set(data, forKey: key)
-        if let sealingKey {
-            defaults.set(SettingsSeal.seal(data, key: sealingKey), forKey: sealKey)
-        } else {
-            defaults.removeObject(forKey: sealKey)
-        }
+        defaults.set(SettingsSeal.seal(data, key: sealingKey), forKey: sealKey)
+        return true
     }
 }

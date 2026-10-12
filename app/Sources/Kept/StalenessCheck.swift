@@ -53,8 +53,12 @@ enum StalenessCheck {
         }
         let threshold = max(1, defaults.integer(forKey: Preferences.stalenessDays))
 
+        // The current folder's backups only: a good backup to a folder Kept
+        // no longer uses protects nothing.
+        let destination = DestinationStore.peek()
         guard let message = staleMessage(
-            history: RunHistory.load(), thresholdDays: threshold)
+            history: RunHistory.load().runs(for: destination), thresholdDays: threshold,
+            waitingSince: destination?.chosenAt)
         else {
             exit(0)
         }
@@ -80,22 +84,31 @@ enum StalenessCheck {
     /// The notification body, or nil when the backup is recent enough to stay
     /// quiet. Pure, so the thresholds are testable without a notification
     /// daemon or a launchd job.
+    ///
+    /// `waitingSince` is when the backup folder was chosen. A folder with no
+    /// backups at all is worth a warning once it has waited the threshold:
+    /// without it, a folder chosen and then never backed up to stayed quiet
+    /// for good.
     static func staleMessage(
-        history: [RunRecord], thresholdDays: Int, now: Date = .now,
+        history: [RunRecord], thresholdDays: Int, waitingSince: Date? = nil, now: Date = .now,
         calendar: Calendar = .current
     ) -> String? {
+        func daysSince(_ date: Date) -> Int {
+            calendar.dateComponents(
+                [.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)
+            ).day ?? 0
+        }
         guard let lastSuccess = history.last(where: { $0.outcome == .success }) else {
             // Nothing has ever succeeded. Only worth saying once the app has
             // had a chance to try — a fresh install with no destination yet
             // should not start nagging.
-            guard !history.isEmpty else { return nil }
+            if history.isEmpty {
+                guard let waitingSince, daysSince(waitingSince) >= thresholdDays else { return nil }
+            }
             return "No backup has finished yet."
         }
 
-        let days = calendar.dateComponents(
-            [.day],
-            from: calendar.startOfDay(for: lastSuccess.start),
-            to: calendar.startOfDay(for: now)).day ?? 0
+        let days = daysSince(lastSuccess.start)
         guard days >= thresholdDays else { return nil }
 
         let age = days == 1 ? "1 day" : "\(days) days"

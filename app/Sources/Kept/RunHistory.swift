@@ -50,9 +50,45 @@ struct RunRecord: Codable, Identifiable, Sendable {
     /// before this field decode fine.
     var mirroredCount: Int?
     var failureKind: FailureKind?
+    /// The backup folder the run was for (`Destination.id`). A run belongs to
+    /// one folder, so a newly chosen folder starts with no backups of its own
+    /// rather than inheriting the last one's. nil in records from before Kept
+    /// kept it, which belong to a folder chosen before then (whose id is nil
+    /// too).
+    var destinationID: UUID?
 
     var duration: TimeInterval? {
         end.map { $0.timeIntervalSince(start) }
+    }
+
+    /// Ran to the end, but some files couldn't be copied.
+    ///
+    /// Originals osxphotos reports missing don't count. Most are shared
+    /// items whose originals Photos never keeps on the Mac (shared albums,
+    /// shared collections, Shared with You), and in the library that found
+    /// this, all but one of 6,221 were. Optimize Mac Storage is the one case
+    /// where they're the library's own; the README and the welcome screen
+    /// say so instead.
+    ///
+    /// Still `.success`, deliberately. The backup ran, so it counts for the
+    /// schedule and the daily check, and the next backup tries the failed
+    /// files again anyway. What it must never do is look like a complete
+    /// backup: osxphotos exits 0 either way.
+    var isPartial: Bool {
+        outcome == .success && (errors ?? 0) > 0
+    }
+
+    /// Whether this run belongs to `destination`'s history.
+    func isFor(_ destination: Destination?) -> Bool {
+        guard let destination else { return true }
+        return destinationID == destination.id
+    }
+}
+
+extension Array where Element == RunRecord {
+    /// The runs for one backup folder. Every record, when there's no folder.
+    func runs(for destination: Destination?) -> [RunRecord] {
+        filter { $0.isFor(destination) }
     }
 }
 
@@ -102,7 +138,11 @@ enum RunHistory {
     /// invisible in the history, and so was every backup killed by an installer
     /// or by Quit. An attempt that vanishes is indistinguishable from a night
     /// nothing was scheduled.
-    static func upsert(_ record: RunRecord, to url: URL = Config.historyURL) {
+    ///
+    /// Throws when the file can't be written. The caller says so: the panel,
+    /// catch-up and the daily check all read this file, and a history that
+    /// silently stopped saving makes every one of them wrong.
+    static func upsert(_ record: RunRecord, to url: URL = Config.historyURL) throws {
         preserveIfUnreadable(url)
         var records = load(from: url)
         if let index = records.firstIndex(where: { $0.id == record.id }) {
@@ -110,20 +150,29 @@ enum RunHistory {
         } else {
             records.append(record)
         }
-        // Oldest first, but never the latest success: it's what the panel,
-        // the failed panel and the daily check measure from, and losing it to
-        // a run of failures or deferrals makes them all say no backup ever
-        // finished.
-        let lastSuccess = records.last(where: { $0.outcome == .success })?.id
-        while records.count > Config.historyLimit {
-            records.remove(at: records.first?.id == lastSuccess ? 1 : 0)
+        // Oldest first, but never a folder's latest success: it's what the
+        // panel, the failed panel and the daily check measure from, and losing
+        // it to a run of failures or deferrals makes them all say no backup
+        // ever finished. One per folder, so going back to a previous folder
+        // finds its last backup still there.
+        var latestSuccess: [UUID?: UUID] = [:]
+        for record in records where record.outcome == .success {
+            latestSuccess[record.destinationID] = record.id
         }
+        let kept = Set(latestSuccess.values)
+        while records.count > Config.historyLimit,
+            let oldest = records.firstIndex(where: { !kept.contains($0.id) })
+        {
+            records.remove(at: oldest)
+        }
+        try write(records, to: url)
+    }
+
+    private static func write(_ records: [RunRecord], to url: URL) throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        if let data = try? encoder.encode(records) {
-            try? data.write(to: url, options: .atomic)
-        }
+        try encoder.encode(records).write(to: url, options: .atomic)
     }
 
     /// Closes out records left without an outcome by a process that died.
@@ -145,13 +194,9 @@ enum RunHistory {
             changed = true
         }
         guard changed else { return records }
-
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        if let data = try? encoder.encode(records) {
-            try? data.write(to: url, options: .atomic)
-        }
+        // Not thrown: the records are right either way, and a write that
+        // failed here is tried again at the next launch.
+        try? write(records, to: url)
         return records
     }
 }

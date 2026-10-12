@@ -19,6 +19,7 @@ enum PreviewScenario: String, CaseIterable, Identifiable, Sendable {
     // Healthy
     case healthy
     case healthyLongGap
+    case partialBackup
     case mixedHistory
     // Running
     case runningStarting
@@ -36,7 +37,7 @@ enum PreviewScenario: String, CaseIterable, Identifiable, Sendable {
 
     var id: String { rawValue }
 
-    /// Picker sections, so seventeen states don't arrive as one flat list.
+    /// Picker sections, so eighteen states don't arrive as one flat list.
     enum Group: String, CaseIterable, Identifiable, Sendable {
         case setup = "Setup"
         case healthy = "Healthy"
@@ -49,7 +50,7 @@ enum PreviewScenario: String, CaseIterable, Identifiable, Sendable {
     var group: Group {
         switch self {
         case .firstRun, .accessBlocked, .readyNoRuns: .setup
-        case .healthy, .healthyLongGap, .mixedHistory: .healthy
+        case .healthy, .healthyLongGap, .partialBackup, .mixedHistory: .healthy
         case .runningStarting, .runningScanning, .runningExporting,
             .runningCleaning, .runningFinishing: .running
         case .volumeUnreachable, .diskFull, .exportFailed, .runCancelled,
@@ -65,6 +66,7 @@ enum PreviewScenario: String, CaseIterable, Identifiable, Sendable {
         case .readyNoRuns: "Ready, nothing has run"
         case .healthy: "Backed up, recent"
         case .healthyLongGap: "Backed up, nine days ago"
+        case .partialBackup: "Backed up, some not copied"
         case .mixedHistory: "Every run outcome"
         case .runningStarting: "Running · starting"
         case .runningScanning: "Running · reading library"
@@ -89,6 +91,7 @@ enum PreviewScenario: String, CaseIterable, Identifiable, Sendable {
         case .readyNoRuns: "Destination set, no history — the neutral status row."
         case .healthy: "The everyday panel, with a week of good backups."
         case .healthyLongGap: "Same panel, stale copy. Nothing recent in the list."
+        case .partialBackup: "Finished, but some files failed to copy."
         case .mixedHistory: "Recent backups expanded over success, failure, stop, skip, interrupt."
         case .runningStarting: "Indeterminate bar, no counts announced yet."
         case .runningScanning: "The silent stretch before the first export line."
@@ -158,6 +161,13 @@ enum StatePreview {
                     run(hoursAgo: 10 * 24, outcome: .success, exported: 61, now: now),
                     run(hoursAgo: 9 * 24, outcome: .success, exported: 214, now: now),
                 ],
+                destination: sampleDestination)
+
+        case .partialBackup:
+            var history = goodWeek(now: now)
+            history[history.count - 1].errors = 3
+            return Snapshot(
+                scenario: scenario, status: .idle, history: history,
                 destination: sampleDestination)
 
         case .mixedHistory:

@@ -35,7 +35,7 @@ extension BackupController {
     /// there is no way to see one without pointing Kept at a folder you
     /// would rather it didn't touch.
     enum PreviewDialog: String, CaseIterable, Identifiable, Sendable {
-        case unsafeRoot, photosLibrary, cloudFolder, nonEmptyFolder, cantReconnect
+        case unsafeRoot, photosLibrary, cloudFolder, nonEmptyFolder, cantReconnect, cantSave
 
         var id: String { rawValue }
 
@@ -46,6 +46,7 @@ extension BackupController {
             case .cloudFolder: "Cloud Folder"
             case .nonEmptyFolder: "Folder Not Empty"
             case .cantReconnect: "Can't Reconnect"
+            case .cantSave: "Can't Save Folder"
             }
         }
     }
@@ -78,10 +79,12 @@ extension BackupController {
             {
                 DestinationPicker.openAutomationSettings()
             }
+        case .cantSave:
+            DestinationPicker.cantSaveAlert(for: "Photos Backup 2", previous: sample).runModal()
         }
     }
 
-    /// The three notifications, posted for real so they can be checked in
+    /// The four notifications, posted for real so they can be checked in
     /// Notification Centre — including whether the "Launch Kept" button on the
     /// staleness one still works.
     ///
@@ -89,13 +92,14 @@ extension BackupController {
     /// point of the button is to see the notification, and a button that
     /// silently does nothing because a checkbox is off is worse than no button.
     enum PreviewNotification: String, CaseIterable, Identifiable, Sendable {
-        case complete, failed, stale
+        case complete, incomplete, failed, stale
 
         var id: String { rawValue }
 
         var label: String {
             switch self {
             case .complete: "Backup Complete"
+            case .incomplete: "Backup Incomplete"
             case .failed: "Backup Failed"
             case .stale: "Backups Stopped"
             }
@@ -105,6 +109,7 @@ extension BackupController {
     func postPreviewNotification(_ kind: PreviewNotification) {
         let payload: KeptNotification.Kind = switch kind {
         case .complete: .backupComplete(body: "31 new · 6 removed")
+        case .incomplete: .backupIncomplete(message: RunFormatting.errorsSentence(12))
         // Both built by the code the real notifications use, so a preview
         // can't drift from what actually arrives.
         case .failed:

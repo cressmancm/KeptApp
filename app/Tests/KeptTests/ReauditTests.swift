@@ -51,14 +51,14 @@ final class ReauditTests: XCTestCase {
     /// One record a newer Kept wrote must not cost the rest of the history.
     func testAnUnknownRecordDoesNotEmptyTheHistory() throws {
         let url = root.appending(path: "runs.json")
-        RunHistory.upsert(record(.success), to: url)
-        RunHistory.upsert(record(.failed), to: url)
+        try RunHistory.upsert(record(.success), to: url)
+        try RunHistory.upsert(record(.failed), to: url)
         var text = try String(contentsOf: url, encoding: .utf8)
         text = text.replacingOccurrences(of: "\"failed\"", with: "\"fromTheFuture\"")
         try text.write(to: url, atomically: true, encoding: .utf8)
 
         XCTAssertEqual(RunHistory.load(from: url).map(\.outcome), [.success])
-        RunHistory.upsert(record(.success), to: url)
+        try RunHistory.upsert(record(.success), to: url)
         XCTAssertEqual(RunHistory.load(from: url).count, 2)
     }
 
@@ -66,7 +66,7 @@ final class ReauditTests: XCTestCase {
     func testAnUnreadableHistoryIsKeptAside() throws {
         let url = root.appending(path: "runs.json")
         try Data("{ not json".utf8).write(to: url)
-        RunHistory.upsert(record(.success), to: url)
+        try RunHistory.upsert(record(.success), to: url)
 
         XCTAssertEqual(RunHistory.load(from: url).count, 1)
         let aside = try FileManager.default.contentsOfDirectory(atPath: root.path)

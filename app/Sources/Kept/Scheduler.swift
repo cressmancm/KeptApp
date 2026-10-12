@@ -16,6 +16,9 @@ final class Scheduler {
     /// Fired whenever the next fire date is recomputed, so an open window can
     /// follow along — `nextFire` itself is not observable.
     var onRearm: ((Date?) -> Void)?
+    /// The runs that count: the current backup folder's. A success at a
+    /// folder no longer in use doesn't service tonight's slot.
+    var loadHistory: () -> [RunRecord] = { RunHistory.load() }
     private(set) var nextFire: Date?
     private var timerTask: Task<Void, Never>?
     private var wakeObserver: NSObjectProtocol?
@@ -126,7 +129,7 @@ final class Scheduler {
             return
         }
 
-        let history = history ?? RunHistory.load()
+        let history = history ?? loadHistory()
         guard !Self.slotWasServiced(history, since: lastScheduled) else { return }
         // The cap that automatic retries also count against: three tries a
         // slot, then the failure waits for the next one or for the user.

@@ -91,6 +91,7 @@ actor BackupEngine {
     ) async -> RunRecord {
         stop.reset()
         var record = RunRecord(trigger: trigger, start: .now)
+        record.destinationID = destination.id
         Config.ensureDirectories()
 
         let runLog: RunLog
@@ -101,7 +102,7 @@ actor BackupEngine {
             record.outcome = .failed
             record.message = "Kept couldn't start the backup: \(error.localizedDescription)"
             record.failureKind = .setupFailed
-            RunHistory.upsert(record)
+            Self.save(record, nil)
             await Self.notify(record, destination: destination)
             return record
         }
@@ -138,7 +139,7 @@ actor BackupEngine {
             record.end = .now
             record.outcome = .skipped
             record.message = "Another backup is already running (pid \(otherPid))"
-            RunHistory.upsert(record)
+            Self.save(record, runLog)
             return record
         }
         try? "\(ProcessInfo.processInfo.processIdentifier)\n"
@@ -148,7 +149,7 @@ actor BackupEngine {
         // Recorded now, with no outcome yet, so the attempt survives the
         // process dying. Everything after this point either updates it in place
         // or leaves it for reconcileInterrupted() to close out at next launch.
-        RunHistory.upsert(record)
+        Self.save(record, runLog)
 
         runLog.log("=== Kept backup starting (trigger: \(trigger.rawValue)) ===")
 
@@ -168,7 +169,6 @@ actor BackupEngine {
             let progress = try await runExport(
                 destination, runLog, onProgress: onProgress, onLogTail: onLogTail)
 
-            runLog.log("=== Kept backup completed successfully ===")
             record.end = .now
             record.outcome = .success
             record.exported = progress.exported
@@ -176,6 +176,14 @@ actor BackupEngine {
             record.skipped = progress.skipped
             record.errors = progress.errors
             record.deleted = progress.deleted
+            // osxphotos exits 0 whatever it left behind, so the summary line
+            // is what says whether this backup is complete.
+            if record.isPartial {
+                runLog.log(
+                    "=== Kept backup finished, incomplete: \(progress.errors ?? 0) errors ===")
+            } else {
+                runLog.log("=== Kept backup completed successfully ===")
+            }
             // The library count osxphotos announced for this run. Wider than
             // the Photos app total: it includes hidden, shared and burst
             // items. Kept only uses it to size the first-copy warning.
@@ -206,9 +214,19 @@ actor BackupEngine {
             }
         }
 
-        RunHistory.upsert(record)
+        Self.save(record, runLog)
         await Self.notify(record, destination: destination)
         return record
+    }
+
+    /// Writes the record, and says so in the run log when it can't. The
+    /// controller notices too: it reads the history back after every backup.
+    private static func save(_ record: RunRecord, _ runLog: RunLog?) {
+        do {
+            try RunHistory.upsert(record)
+        } catch {
+            runLog?.log("Couldn't save this backup to the history: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Kept's own files
@@ -881,6 +899,11 @@ actor BackupEngine {
                     kind: record.failureKind, rawMessage: record.message,
                     destination: destination, failedAt: record.start
                 ).plainText)
+        case .success where (record.errors ?? 0) > 0:
+            // Files that should have copied and didn't are a failure the user
+            // would want to hear about.
+            guard defaults.bool(forKey: Preferences.notifyOnFailure) else { return }
+            kind = .backupIncomplete(message: RunFormatting.errorsSentence(record.errors ?? 0))
         case .success:
             guard defaults.bool(forKey: Preferences.notifyAlways) else { return }
             kind = .backupComplete(body: Self.successBody(record))
@@ -894,10 +917,11 @@ actor BackupEngine {
     /// counts hidden, shared and burst items the Photos app leaves out of its
     /// own summary, so quoting it here invites the same false comparison the
     /// popover subtitle used to.
-    private static func successBody(_ record: RunRecord) -> String {
+    static func successBody(_ record: RunRecord) -> String {
         var parts: [String] = []
         if let exported = record.exported { parts.append("\(exported) new") }
         if let deleted = record.deleted, deleted > 0 { parts.append("\(deleted) removed") }
+        if let notCopied = RunFormatting.notCopied(record) { parts.append(notCopied) }
         return parts.isEmpty ? "No changes since the last backup." : parts.joined(separator: " · ")
     }
 }
