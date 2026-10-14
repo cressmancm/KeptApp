@@ -41,7 +41,7 @@ Or, from `app`, `make setup` then `make install`; `make` on its own lists the re
 - `--no-install` builds and signs `.build/Kept.app` and stops there.
 - `--debug` makes a debug build a debugger can attach to: in Xcode, Debug → Attach to Process → Kept, or `lldb -n Kept --wait-for` before opening it. It keeps your provisioning profile, so it reads the same keychain item as your installed Kept.
 - `--force` installs even while a backup is running. Normally it refuses, because installing kills the backup partway through.
-- `KEPT_INSTALL_TO=~/Applications/Kept.app` installs there instead of `/Applications/Kept.app`, so your build doesn't replace the Kept you use. The script deletes what's at that path before copying, so it refuses anything that isn't an absolute path to a `.app`, or that's already there and isn't Kept.
+- `KEPT_INSTALL_TO=~/Applications/Kept.app` installs there instead of `/Applications/Kept.app`, so your build doesn't replace the Kept you use. The script replaces what's at that path, so it refuses anything that isn't an absolute path to a `.app`, or that's already there and isn't Kept.
 - `KEPT_SIGN_IDENTITY="Name"` signs with that identity and never falls back; `KEPT_SIGN_IDENTITY=-` signs ad-hoc on purpose, as CI does.
 
 ## Testing from the command line
