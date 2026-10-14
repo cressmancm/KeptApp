@@ -131,4 +131,28 @@ final class SchedulerStateTests: XCTestCase {
             Scheduler.graceBeforeFiring(scheduled: slot, now: slot.addingTimeInterval(300)),
             Config.wakeGraceSecs)
     }
+
+    // MARK: - Manually means manually (production review W6)
+
+    /// A retry, catch-up or deferred night armed before the switch to
+    /// Manually is dropped at the start, whatever armed it.
+    func testOnlyAskedForBackupsStartWhenManual() {
+        for trigger in [BackupTrigger.scheduled, .catchUp, .retry] {
+            XCTAssertFalse(BackupController.mayStart(trigger, cadence: .manual), "\(trigger)")
+            XCTAssertTrue(BackupController.mayStart(trigger, cadence: .nightly), "\(trigger)")
+            XCTAssertTrue(BackupController.mayStart(trigger, cadence: .weekly), "\(trigger)")
+        }
+        XCTAssertTrue(BackupController.mayStart(.manual, cadence: .manual))
+    }
+
+    /// On battery, then Manually: plugging in used to start the night that
+    /// was held back. Now it stops waiting.
+    func testChoosingManuallyStopsWaitingForPower() {
+        XCTAssertEqual(
+            BackupController.statusDroppingAutomaticWork(.waitingForPower), .idle)
+        // A failure stays on the panel: it's still the truth about the backup.
+        let failed = BackupController.Status.failed(.volumeUnreachable, "Not there")
+        XCTAssertEqual(BackupController.statusDroppingAutomaticWork(failed), failed)
+        XCTAssertEqual(BackupController.statusDroppingAutomaticWork(.idle), .idle)
+    }
 }

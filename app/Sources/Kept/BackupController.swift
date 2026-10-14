@@ -50,7 +50,10 @@ final class BackupController {
     /// ones with side effects would rearm the timer or reinstall the daily
     /// check before anything was set up.
     var cadence: BackupCadence = .nightly {
-        didSet { persist(cadence.rawValue, Preferences.cadence, rearm: true) }
+        didSet {
+            persist(cadence.rawValue, Preferences.cadence, rearm: true)
+            if preferencesLoaded, cadence == .manual { dropAutomaticWork() }
+        }
     }
     var weeklyWeekday = 1 {
         didSet { persist(weeklyWeekday, Preferences.weeklyWeekday, rearm: true) }
@@ -375,7 +378,9 @@ final class BackupController {
         // and would let "Back Up Now", pressed from a previewed screen, start
         // an invisible one.
         clearPreview()
-        guard !isUninstalling, !isRunning, let destination else { return }
+        guard !isUninstalling, !isRunning, let destination,
+            Self.mayStart(trigger, cadence: cadence)
+        else { return }
 
         // Never start an unattended run on battery. It cannot succeed: the
         // PreventSystemSleep assertion is honoured on AC only, so macOS sleeps
@@ -414,6 +419,27 @@ final class BackupController {
                 })
             self.finish(record)
         }
+    }
+
+    /// Whether a backup may start. Backed up Manually means only when asked:
+    /// a retry, a catch-up or a deferred night still pending from before the
+    /// switch is dropped here, whatever armed it (production review W6,
+    /// 2026-10-13).
+    nonisolated static func mayStart(_ trigger: BackupTrigger, cadence: BackupCadence) -> Bool {
+        trigger == .manual || cadence != .manual
+    }
+
+    /// Switching to Manually cancels what was waiting to start on its own:
+    /// the retry after a failure, and a night held back for power. Plugging
+    /// in afterwards used to start the deferred backup anyway.
+    private func dropAutomaticWork() {
+        retryTask?.cancel()
+        retryTask = nil
+        status = Self.statusDroppingAutomaticWork(status)
+    }
+
+    nonisolated static func statusDroppingAutomaticWork(_ status: Status) -> Status {
+        status == .waitingForPower ? .idle : status
     }
 
     /// Re-attempts a failed run after the cooldown, at most
