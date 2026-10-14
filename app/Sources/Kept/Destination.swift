@@ -354,31 +354,22 @@ enum DestinationStore {
     static let key = "destination"
     static let sealKey = "destinationSeal"
 
-    /// The last three are the one-time move from the login keychain, where a
-    /// build without the provisioning profile keeps its key: a folder sealed
-    /// with that key is sealed again with a fresh data-protection key, and
-    /// the old key deleted, so moving to a release build doesn't make anyone
-    /// choose their folder again. It trusts the login-keychain key once, which
-    /// is no more than that build did. Only evaluated when the current key
-    /// doesn't verify.
+    /// Only the current key is ever tried. A fallback to the login-keychain
+    /// key, for moving from a build without the provisioning profile to a
+    /// release, read that keychain whenever the current key didn't verify,
+    /// and anything running as this user can put an item there. A program
+    /// could plant a key it knew, write a folder sealed with it, and a release
+    /// would have trusted it and sealed it again with its own protected key
+    /// (production review S1, 2026-10-13). Moving between those builds now
+    /// asks for the folder once.
     static func load(
         defaults: UserDefaults = .standard,
-        sealingKey: SymmetricKey? = SettingsSeal.key(),
-        legacyKey: @autoclosure () -> SymmetricKey? = SettingsSeal.legacyKeyForMigration(),
-        resealingKey: @autoclosure () -> SymmetricKey? = SettingsSeal.rotatedKey(),
-        legacyMigrated: () -> Void = { SettingsSeal.deleteLegacyKey() }
+        sealingKey: SymmetricKey? = SettingsSeal.key()
     ) -> Destination? {
         guard let data = defaults.data(forKey: key),
-            let seal = defaults.data(forKey: sealKey)
+            let seal = defaults.data(forKey: sealKey),
+            let sealingKey, SettingsSeal.verify(data, seal: seal, key: sealingKey)
         else { return nil }
-        if let sealingKey, SettingsSeal.verify(data, seal: seal, key: sealingKey) {
-            return try? JSONDecoder().decode(Destination.self, from: data)
-        }
-        guard let legacy = legacyKey(), SettingsSeal.verify(data, seal: seal, key: legacy),
-            let fresh = resealingKey()
-        else { return nil }
-        defaults.set(SettingsSeal.seal(data, key: fresh), forKey: sealKey)
-        legacyMigrated()
         return try? JSONDecoder().decode(Destination.self, from: data)
     }
 

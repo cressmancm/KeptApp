@@ -87,20 +87,6 @@ enum SettingsSeal {
         return nil
     }
 
-    /// The login-keychain key, when this build has moved to the
-    /// data-protection keychain: one a build without the provisioning profile
-    /// made. Read once, to carry that build's folder over without asking for
-    /// it again; nil otherwise. (Kept 1.0's key isn't reachable this way: it
-    /// was saved under the old identifier, see IdentityMigration.)
-    static func legacyKeyForMigration(service: String = service) -> SymmetricKey? {
-        store == .dataProtection ? readKey(.login, service) : nil
-    }
-
-    static func deleteLegacyKey(service: String = service) {
-        guard store == .dataProtection else { return }
-        SecItemDelete(baseQuery(.login, service) as CFDictionary)
-    }
-
     /// Removes the key. Uninstall only: every sealed setting stops verifying.
     /// From both keychains, so a key left over from 1.0 goes too.
     static func deleteKey(service: String = service) -> OSStatus {

@@ -318,61 +318,45 @@ final class SecurityTests: XCTestCase {
         XCTAssertNil(DestinationStore.load(defaults: defaults, sealingKey: nil))
     }
 
-    /// `swift test` has no keychain entitlement, so it's on the login
-    /// keychain, and the migration below never reads the real keychain there.
-    /// Xcode's test host, signed with a profile, has the entitlement.
-    func testAnUnentitledBuildUsesTheLoginKeychain() throws {
-        try XCTSkipIf(SettingsSeal.store == .dataProtection, "Running in an entitled test host")
-        XCTAssertNil(SettingsSeal.legacyKeyForMigration())
+    /// Production review S1: a folder sealed with a key someone else knows
+    /// never loads, and loading it changes nothing. The login-keychain
+    /// fallback this replaced trusted such a seal and sealed it again with
+    /// the protected key.
+    func testAFolderSealedWithAnyOtherKeyIsRefusedAndLeftAlone() throws {
+        let defaults = scratchDefaults()
+        let current = SymmetricKey(size: .bits256)
+        DestinationStore.save(sample, defaults: defaults, sealingKey: current)
+
+        let planted = SymmetricKey(size: .bits256)
+        let hostile = try JSONEncoder().encode(
+            Destination(path: "/Users/Shared/loot", isNetwork: false))
+        let forgedSeal = SettingsSeal.seal(hostile, key: planted)
+        defaults.set(hostile, forKey: DestinationStore.key)
+        defaults.set(forgedSeal, forKey: DestinationStore.sealKey)
+
+        XCTAssertNil(DestinationStore.load(defaults: defaults, sealingKey: current))
+        // Not sealed again with the current key, or with anything.
+        XCTAssertEqual(defaults.data(forKey: DestinationStore.sealKey), forgedSeal)
+        XCTAssertEqual(defaults.data(forKey: DestinationStore.key), hostile)
     }
 
-    /// With the entitlement, the login-keychain side of the migration must
-    /// never see the data-protection key. It did: reading "the login key"
-    /// found the real one, and deleting it deleted the key just made.
-    func testTheLoginSideNeverReachesTheDataProtectionKey() throws {
+    /// With the entitlement, an item planted under Kept's name in the login
+    /// keychain is never the key: the key is the data-protection one.
+    func testAPlantedLoginKeyIsNeverTheKey() throws {
         try XCTSkipIf(SettingsSeal.store != .dataProtection, "Needs a provisioned test host")
-        let service = "com.chipcressman.Kept.tests.migration.\(UUID().uuidString)"
+        let service = "com.chipcressman.Kept.tests.planted.\(UUID().uuidString)"
         addTeardownBlock { _ = SettingsSeal.deleteKey(service: service) }
+        let planted = Data(repeating: 7, count: 32)
+        let added = SecItemAdd([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: SettingsSeal.account,
+            kSecValueData as String: planted,
+            kSecUseDataProtectionKeychain as String: false,
+        ] as CFDictionary, nil)
+        XCTAssertEqual(added, errSecSuccess)
         let key = try XCTUnwrap(SettingsSeal.key(service: service))
-        func bytes(_ key: SymmetricKey?) -> Data? { key?.withUnsafeBytes { Data($0) } }
-
-        XCTAssertNil(SettingsSeal.legacyKeyForMigration(service: service))
-        SettingsSeal.deleteLegacyKey(service: service)
-        XCTAssertEqual(bytes(SettingsSeal.key(service: service)), bytes(key))
-    }
-
-    /// Updating from 1.0 keeps the folder: a seal made with the login-keychain
-    /// key is made again with the new one, and the old key goes.
-    func testAFolderSealedBy10IsCarriedOver() {
-        let defaults = scratchDefaults()
-        let legacy = SymmetricKey(size: .bits256)
-        let fresh = SymmetricKey(size: .bits256)
-        DestinationStore.save(sample, defaults: defaults, sealingKey: legacy)
-        var migrated = 0
-        XCTAssertEqual(
-            DestinationStore.load(
-                defaults: defaults, sealingKey: SymmetricKey(size: .bits256),
-                legacyKey: legacy, resealingKey: fresh, legacyMigrated: { migrated += 1 }),
-            sample)
-        XCTAssertEqual(migrated, 1)
-        // Sealed with the new key now; the old one no longer opens it.
-        XCTAssertEqual(DestinationStore.load(defaults: defaults, sealingKey: fresh), sample)
-        XCTAssertNil(DestinationStore.load(
-            defaults: defaults, sealingKey: legacy, legacyKey: nil, resealingKey: nil))
-    }
-
-    /// The carry-over is for a seal the old key made, nothing else.
-    func testTheCarryOverDoesNotAcceptAForgedSeal() throws {
-        let defaults = scratchDefaults()
-        DestinationStore.save(sample, defaults: defaults, sealingKey: SymmetricKey(size: .bits256))
-        let hostile = Destination(path: "/Users/Shared/loot", isNetwork: false)
-        defaults.set(try JSONEncoder().encode(hostile), forKey: DestinationStore.key)
-        var migrated = 0
-        XCTAssertNil(DestinationStore.load(
-            defaults: defaults, sealingKey: SymmetricKey(size: .bits256),
-            legacyKey: SymmetricKey(size: .bits256), resealingKey: SymmetricKey(size: .bits256),
-            legacyMigrated: { migrated += 1 }))
-        XCTAssertEqual(migrated, 0)
+        XCTAssertNotEqual(key.withUnsafeBytes { Data($0) }, planted)
     }
 
     // MARK: - Round 2: P4/P5 hardening
