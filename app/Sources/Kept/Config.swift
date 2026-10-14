@@ -82,6 +82,10 @@ enum Config {
     /// How long a file-system call on the backup folder (an existence check,
     /// free space) may take before the folder counts as not responding.
     static let volumeCallTimeoutSecs: TimeInterval = 30
+    /// The cleanup helper's deadlines: deleting expired removed photos, and
+    /// removing the folders an export emptied.
+    static let expiryTimeoutSecs: TimeInterval = 30 * 60
+    static let emptyFoldersTimeoutSecs: TimeInterval = 5 * 60
     /// What a wake gives the network before anything tries the share, and
     /// what a scheduled backup waits when it fires late, after a sleep.
     static let wakeGraceSecs: TimeInterval = 30

@@ -59,7 +59,7 @@ final class EngineTests: XCTestCase {
             case "/sbin/mount": return .ok(Self.mountedLine)
             case "/bin/ls":
                 let n = probes.withLock { n in n += 1; return n }
-                return n == 1 ? .timedOut : .ok()
+                return n == 1 ? .hung : .ok()
             default: return .ok()
             }
         }
@@ -77,7 +77,7 @@ final class EngineTests: XCTestCase {
             case "/sbin/mount":
                 return .ok(share.withLock { $0.mounted } ? Self.mountedLine : "")
             case "/bin/ls":
-                return share.withLock { $0.healthy } ? .ok() : .timedOut
+                return share.withLock { $0.healthy } ? .ok() : .hung
             case "/usr/sbin/diskutil":
                 share.withLock { $0.mounted = false }
                 return .ok()
@@ -295,5 +295,5 @@ extension CommandResult {
         CommandResult(status: 1, stdout: "", stderr: stderr, timedOut: false)
     }
 
-    static let timedOut = CommandResult(status: 9, stdout: "", stderr: "", timedOut: true)
+    static let hung = CommandResult(status: 9, stdout: "", stderr: "", timedOut: true)
 }

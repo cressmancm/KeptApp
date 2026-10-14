@@ -10,7 +10,7 @@ if Config.isTestHost {
     exit(0)
 }
 
-// Kept has three modes, chosen before any UI exists.
+// Kept has four modes, chosen before any UI exists.
 //
 // `--staleness-check` is the LaunchAgent's headless invocation: it reads the
 // run history, may post a notification, and exits — it must never become the
@@ -25,6 +25,14 @@ if CommandLine.arguments.contains("--staleness-check") {
 // mirror would delete. Same rule: no UI, do the one thing, exit.
 if CommandLine.arguments.contains("--hold-removed") {
     RemovedPhotos.runHoldAndExit(arguments: CommandLine.arguments)
+}
+
+// `--expire-removed <days>` and `--remove-empty-folders` are the backup's
+// cleanup, in a process the backup can kill. Same rule again.
+if CommandLine.arguments.contains(RemovedPhotos.expireFlag)
+    || CommandLine.arguments.contains(RemovedPhotos.removeEmptyFlag)
+{
+    RemovedPhotos.runMaintenanceAndExit(arguments: CommandLine.arguments)
 }
 
 // Opened straight from a download, macOS runs Kept from a temporary copy whose

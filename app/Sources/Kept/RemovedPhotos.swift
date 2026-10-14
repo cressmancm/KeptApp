@@ -350,3 +350,78 @@ enum RemovedPhotos {
         return (expired, errors)
     }
 }
+
+// MARK: - The cleanup helper
+
+/// Expiry and empty-folder removal, run as `Kept --expire-removed <days>` and
+/// `Kept --remove-empty-folders`, a process of their own the engine can kill.
+///
+/// They used to run on a thread in the app, with no deadline. A share that
+/// stopped answering mid-delete blocked that thread for good, and nothing
+/// could end it: Stop reached child processes only, so the panel said
+/// "Backing up" until Kept quit, and every backup after it was dropped
+/// (production review S7, 2026-10-13). A process can be killed, and a killed
+/// one does nothing more, even the one stuck in a call on the share.
+extension RemovedPhotos {
+    static let expireFlag = "--expire-removed"
+    static let removeEmptyFlag = "--remove-empty-folders"
+
+    /// What the helper prints, one line each, for the run log.
+    static func expiryLog(_ result: (expired: [Expired], errors: [String]), days: Int) -> [String] {
+        result.expired.map { folder in
+            "Deleted \(folderName)/\(folder.name) "
+                + "(\(folder.fileCount) file\(folder.fileCount == 1 ? "" : "s")): "
+                + "older than \(days) days."
+        } + result.errors
+    }
+
+    static func emptyFoldersLog(_ removed: [String]) -> [String] {
+        removed.isEmpty ? [] : ["Removed \(removed.count) empty folder\(removed.count == 1 ? "" : "s")."]
+    }
+
+    /// The helper's work, apart from the process around it: the backup
+    /// folder from the environment, like `--hold-removed`; the retention in
+    /// days as an argument; for empty folders, the moved files' paths on
+    /// standard input, one a line, since a big night's could be more than
+    /// fits in arguments. Returns the exit status and the lines to print.
+    static func maintenance(
+        arguments: [String], environment: [String: String], input: () -> Data
+    ) -> (status: Int32, output: [String]) {
+        guard let root = environment[backupRootVariable], !root.isEmpty else {
+            return (64, ["Kept: the cleanup helper needs \(backupRootVariable)"])
+        }
+        let rootURL = URL(filePath: root, directoryHint: .isDirectory)
+        if let index = arguments.firstIndex(of: expireFlag) {
+            guard index + 1 < arguments.count, let days = Int(arguments[index + 1]),
+                retentionChoices.contains(days)
+            else { return (64, ["Kept: \(expireFlag) needs one of \(retentionChoices) days"]) }
+            return (0, expiryLog(expire(backupRoot: rootURL, retentionDays: days), days: days))
+        }
+        if arguments.contains(removeEmptyFlag) {
+            let paths = String(decoding: input(), as: UTF8.self)
+                .split(separator: "\n").map(String.init)
+            return (0, emptyFoldersLog(removeEmptyFolders(backupRoot: rootURL, movedFrom: paths)))
+        }
+        return (64, ["Kept: no cleanup asked for"])
+    }
+
+    static func runMaintenanceAndExit(arguments: [String]) -> Never {
+        // The same rule as --hold-removed, for the same reason: run any other
+        // way, Kept has its own Full Disk Access, and this deletes.
+        guard ProcessAncestry.isDescendantOfOwnExecutable() else {
+            FileHandle.standardError.write(Data(
+                "Kept: the cleanup helper only runs as part of a Kept backup\n".utf8))
+            exit(77)
+        }
+        let (status, output) = maintenance(
+            arguments: arguments, environment: ProcessInfo.processInfo.environment,
+            input: { FileHandle.standardInput.readDataToEndOfFile() })
+        let text = output.map { $0 + "\n" }.joined()
+        if status == 0 {
+            FileHandle.standardOutput.write(Data(text.utf8))
+        } else {
+            FileHandle.standardError.write(Data(text.utf8))
+        }
+        exit(status)
+    }
+}

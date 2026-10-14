@@ -117,19 +117,4 @@ final class ReauditTests: XCTestCase {
         XCTAssertTrue(markdown.contains(#"\[old\]\_\*mirror\*"#), markdown)
         XCTAssertTrue(copy.plainText.hasPrefix("[old]_*mirror* has less than"), copy.plainText)
     }
-
-    // MARK: - Process tree
-
-    func testDescendantsAreFound() async throws {
-        let process = Process()
-        process.executableURL = URL(filePath: "/bin/sh")
-        process.arguments = ["-c", "sleep 30 & sleep 30; wait"]
-        try process.run()
-        defer { process.terminate() }
-        try await Task.sleep(for: .milliseconds(300))
-
-        let tree = ProcessAncestry.descendants(of: process.processIdentifier)
-        XCTAssertEqual(tree.count, 2, "both sleeps")
-        for pid in tree { kill(pid, SIGKILL) }
-    }
 }

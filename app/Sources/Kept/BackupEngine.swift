@@ -39,6 +39,13 @@ actor BackupEngine {
         var stallCheck: Duration = .seconds(30)
         var stallSampleSecs = 3
         var volumeCall: TimeInterval = Config.volumeCallTimeoutSecs
+        /// Deadlines for the cleanup helper. Deleting a year of removed
+        /// photos from a NAS can take a while; what isn't done by then is
+        /// done next backup.
+        var expiry: TimeInterval = Config.expiryTimeoutSecs
+        var emptyFolders: TimeInterval = Config.emptyFoldersTimeoutSecs
+        /// How long a killed child gets to end. See ChildProcess.grace.
+        var grace: Duration = ChildProcess.grace
     }
 
     /// Runs a child process: executable, arguments, timeout, stop signal.
@@ -56,7 +63,14 @@ actor BackupEngine {
     /// Every call that touches the backup folder and can block on a share that
     /// stopped answering. See BlockingLane.
     private let volumeLane = BlockingLane()
-    private var currentProcess: Process?
+    /// Kept itself, run as osxphotos' cleanup command and as the cleanup
+    /// helper.
+    private let helper: URL?
+    /// Children that were killed and haven't ended: blocked, most likely, on
+    /// a share that stopped answering. Each can do nothing more, but until
+    /// it's gone nothing else may touch the backup folder. See
+    /// refuseWhileStuck.
+    private var stuck: [ChildProcess] = []
 
     init(
         timing: Timing = Timing(),
@@ -65,8 +79,10 @@ actor BackupEngine {
         appBundle: URL = Bundle.main.bundleURL,
         systemLibrary: @escaping @Sendable () -> String? = { PhotosLibrary.systemLibraryPath() },
         exportDatabase: String = Config.exportDBURL.path,
+        helper: URL? = Bundle.main.executableURL,
         command: CommandRunner? = nil
     ) {
+        self.helper = helper
         self.timing = timing
         self.pythonOverride = python
         self.workingDirectory = workingDirectory
@@ -79,10 +95,57 @@ actor BackupEngine {
     }
 
     /// Stops the backup in progress at whatever step it's on: a reconnect, a
-    /// probe or the export.
+    /// probe, the cleanup or the export. Each child registers with the stop
+    /// signal, and firing it kills the child and everything it started.
     func cancel() {
         stop.fire()
-        currentProcess?.terminate()
+    }
+
+    /// Records a child that was killed and hasn't ended.
+    func remember(stuck child: ChildProcess) {
+        stuck.append(child)
+    }
+
+    /// Refuses to start anything that touches the backup folder while a
+    /// killed child from earlier still hasn't ended. Two at once could move
+    /// or delete the same files.
+    func refuseWhileStuck(_ dest: Destination, _ runLog: RunLog) throws {
+        stuck.removeAll { !$0.groupIsAlive }
+        guard !stuck.isEmpty else { return }
+        runLog.log(
+            "A stopped part of an earlier backup is still waiting on the backup folder "
+                + "(pid \(stuck.map { "\($0.pid)" }.joined(separator: ", "))).")
+        throw BackupError("“\(dest.displayName)” stopped responding.", kind: .volumeUnreachable)
+    }
+
+    /// Runs the cleanup helper: Kept, in a process the stop signal and a
+    /// deadline can kill. Its output goes to the run log. Throws when it was
+    /// stopped, or killed and stuck.
+    private func runHelper(
+        _ arguments: [String], input: Data = Data(), timeout: TimeInterval,
+        _ dest: Destination, _ runLog: RunLog
+    ) async throws -> CommandResult {
+        try refuseWhileStuck(dest, runLog)
+        try throwIfStopped()
+        guard let helper else {
+            throw BackupError("Part of Kept is missing. Reinstall it.", kind: .setupFailed)
+        }
+        var environment = ChildEnvironment.sanitized()
+        environment[RemovedPhotos.backupRootVariable] = dest.path
+        let result = await ShellCommand.run(
+            helper.path, arguments, timeout: timeout, environment: environment, input: input,
+            stop: stop)
+        result.stdout.enumerateLines { line, _ in runLog.log(line) }
+        if let child = result.stuck {
+            remember(stuck: child)
+            try throwIfStopped()
+            throw notResponding(dest, runLog)
+        }
+        try throwIfStopped()
+        if result.status != 0, !result.timedOut {
+            result.stderr.enumerateLines { line, _ in runLog.log(line) }
+        }
+        return result
     }
 
     private func throwIfStopped() throws {
@@ -171,7 +234,7 @@ actor BackupEngine {
             try await checkLibraryAccess(runLog)
             try await ensureDestinationReady(destination, runLog)
             try throwIfStopped()
-            await expireRemovedPhotos(destination, runLog)
+            try await expireRemovedPhotos(destination, runLog)
             try throwIfStopped()
             try await checkFreeSpace(destination, runLog)
             let source = try await checkPhotosLibrary(destination, runLog)
@@ -619,32 +682,23 @@ actor BackupEngine {
     // MARK: - Removed photos
 
     /// Deletes "Removed from Photos" folders past the retention setting, before
-    /// the free-space check so the space they free counts. Never fails the
-    /// backup: anything it couldn't delete is logged and tried again next run.
+    /// the free-space check so the space they free counts. Anything it
+    /// couldn't delete is logged and tried again next run.
     ///
-    /// On the volume lane, off the actor, so Stop can still reach the engine
-    /// while it works. No timeout: deleting a year of removed photos from a
-    /// NAS can legitimately take minutes, and nothing else may touch the
-    /// folder until it's done.
-    private func expireRemovedPhotos(_ dest: Destination, _ runLog: RunLog) async {
+    /// In the cleanup helper, a process Stop and a deadline can kill: a share
+    /// that stops answering mid-delete otherwise held the backup for good.
+    /// Past the deadline the rest waits for the next backup. Fails the backup
+    /// only when it was stopped, or killed and still stuck on the share.
+    func expireRemovedPhotos(_ dest: Destination, _ runLog: RunLog) async throws {
         let days = RemovedPhotos.retentionDays()
-        let outcome = await volumeLane.run {
-            RemovedPhotos.expire(
-                backupRoot: URL(filePath: dest.path, directoryHint: .isDirectory),
-                retentionDays: days)
-        }
-        guard case .finished(let result) = outcome else {
-            runLog.log("Skipped deleting expired removed photos: the backup folder isn't answering.")
-            return
-        }
-        for folder in result.expired {
+        let result = try await runHelper(
+            [RemovedPhotos.expireFlag, "\(days)"], timeout: timing.expiry, dest, runLog)
+        if result.timedOut {
             runLog.log(
-                "Deleted \(RemovedPhotos.folderName)/\(folder.name) "
-                    + "(\(folder.fileCount) file\(folder.fileCount == 1 ? "" : "s")): "
-                    + "older than \(days) days.")
-        }
-        for error in result.errors {
-            runLog.log(error)
+                "Stopped deleting expired removed photos after "
+                    + "\(Int(timing.expiry / 60)) minutes; the rest go next backup.")
+        } else if result.status != 0 {
+            runLog.log("Couldn't delete expired removed photos (exit \(result.status)).")
         }
     }
 
@@ -687,19 +741,13 @@ actor BackupEngine {
         onProgress: @escaping @Sendable (ExportProgress) -> Void,
         onLogTail: @escaping @Sendable ([String]) -> Void
     ) async throws -> (status: Int32, progress: ExportProgress) {
-        guard let python else {
+        guard let python, let executable = helper?.path else {
             throw BackupError("Part of Kept is missing. Reinstall it.", kind: .setupFailed)
         }
-        let process = Process()
-        process.executableURL = python
-        process.currentDirectoryURL = workingDirectory
-        guard let executable = Bundle.main.executableURL?.path else {
-            throw BackupError("Part of Kept is missing. Reinstall it.", kind: .setupFailed)
-        }
+        try refuseWhileStuck(dest, runLog)
         var environment = ChildEnvironment.sanitized()
         environment[RemovedPhotos.executableVariable] = executable
         environment[RemovedPhotos.backupRootVariable] = dest.path
-        process.environment = environment
         let rules = await volumeLane.run(timeout: timing.volumeCall) {
             Result { try RemovedPhotos.writeKeepRules(
                 backupRoot: URL(filePath: dest.path, directoryHint: .isDirectory)) }
@@ -707,30 +755,62 @@ actor BackupEngine {
         guard case .finished(let written) = rules else { throw notResponding(dest, runLog) }
         try written.get()
         // The last suspension before launch. Past it, a Stop reaches the
-        // process through `currentProcess`.
+        // export through the stop signal.
         try throwIfStopped()
-        process.arguments = Self.exportArguments(destinationPath: dest.path, source: source)
         let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        process.standardInput = FileHandle.nullDevice
+        let nothing = open("/dev/null", O_RDONLY | O_CLOEXEC)
+        defer { close(nothing) }
+        let child: ChildProcess
+        do {
+            child = try ChildProcess.launch(
+                python.path, Self.exportArguments(destinationPath: dest.path, source: source),
+                environment: environment, directory: workingDirectory,
+                stdin: nothing,
+                stdout: pipe.fileHandleForWriting.fileDescriptor,
+                stderr: pipe.fileHandleForWriting.fileDescriptor)
+        } catch {
+            throw BackupError("Kept couldn't start the backup: \(error)", kind: .setupFailed)
+        }
+        // osxphotos and its cleanup commands have their own copies. With
+        // this one still open here, the output would never end.
+        try? pipe.fileHandleForWriting.close()
 
-        let exited = AsyncStream<Void> { continuation in
-            process.terminationHandler = { _ in
-                continuation.yield()
-                continuation.finish()
+        // The output, a line at a time. It ends when the pipe does, or a
+        // grace after osxphotos has ended or been killed: a cleanup command
+        // stuck on a dead share can hold the pipe open for good, and the
+        // read loop below waited on it forever.
+        let grace = timing.grace
+        let (lines, linesContinuation) = AsyncStream<String>.makeStream()
+        let splitter = Mutex(LineSplitter())
+        PipeReader.start(
+            pipe.fileHandleForReading,
+            onData: { chunk in
+                for line in splitter.withLock({ $0.lines(in: chunk) }) {
+                    linesContinuation.yield(line)
+                }
+            },
+            onEnd: {
+                if let rest = splitter.withLock({ $0.rest() }) { linesContinuation.yield(rest) }
+                linesContinuation.finish()
+            })
+        let closeAfterGrace: @Sendable () -> Void = {
+            Task {
+                try? await Task.sleep(for: grace)
+                linesContinuation.finish()
             }
         }
-
-        do {
-            try process.run()
-        } catch {
-            throw BackupError(
-                "Kept couldn't start the backup: \(error.localizedDescription)",
-                kind: .setupFailed)
+        let stopToken = stop.onStop {
+            child.terminate(grace: grace)
+            closeAfterGrace()
         }
-        currentProcess = process
-        defer { currentProcess = nil }
+        defer { stop.remove(stopToken) }
+        let reaper = Task {
+            guard await child.exitStatus() != nil else { return }
+            // Whatever osxphotos left running is not meant to be.
+            child.killGroup()
+            closeAfterGrace()
+        }
+        defer { reaper.cancel() }
 
         var parser = ProgressParser()
         var lastEmit = ContinuousClock.now
@@ -757,7 +837,7 @@ actor BackupEngine {
         let lastOutput = Mutex(ContinuousClock.now)
         let stalled = Mutex(false)
         let samplePath = Mutex<String?>(nil)
-        let pid = process.processIdentifier
+        let pid = child.pid
         let stallLimit = timing.stall
         let stallCheck = timing.stallCheck
         let sampleSecs = timing.stallSampleSecs
@@ -783,16 +863,13 @@ actor BackupEngine {
                         timeout: 120)
                     if sampled.status == 0 { samplePath.withLock { $0 = path } }
 
-                    // SIGKILL, not SIGTERM: a process wedged in a syscall
-                    // against a dead mount may never handle a catchable signal.
-                    // Its descendants too: a cleanup command (`sh`, then
+                    // The whole process group: a cleanup command (`sh`, then
                     // `Kept --hold-removed`) inherits the output pipe, and one
                     // left hung on the share would hold it open after osxphotos
-                    // is gone — so the read loop below would never end, which
-                    // is the hang this watchdog exists to stop.
-                    let tree = ProcessAncestry.descendants(of: pid)
-                    kill(pid, SIGKILL)
-                    for child in tree { kill(child, SIGKILL) }
+                    // is gone. The group takes in one started a moment ago,
+                    // which a list of descendants made first could miss.
+                    child.terminate(grace: grace)
+                    closeAfterGrace()
                     return
                 }
             }
@@ -801,7 +878,7 @@ actor BackupEngine {
 
         var movedFrom: [String] = []
         do {
-            for try await line in pipe.fileHandleForReading.bytes.lines {
+            for await line in lines {
                 lastOutput.withLock { $0 = ContinuousClock.now }
                 runLog.appendRaw(line)
                 if let path = RemovedPhotos.originalPath(fromLogLine: line) { movedFrom.append(path) }
@@ -830,11 +907,11 @@ actor BackupEngine {
                     lastMarkItem = parser.progress.current
                 }
             }
-        } catch {
-            runLog.log("Error reading osxphotos output: \(error.localizedDescription)")
         }
 
-        for await _ in exited {}
+        // Ended, or killed and given up on after the grace.
+        let ended = await child.exitStatus()
+        let leftoversEnded = await child.endLeftovers(grace: grace)
         if stalled.withLock({ $0 }) {
             runLog.log(
                 "No output for \(stallLimit.components.seconds / 60) minutes — the export was "
@@ -850,19 +927,32 @@ actor BackupEngine {
                 "Moved \(movedFrom.count) file\(movedFrom.count == 1 ? "" : "s") removed from Photos to "
                     + "\(RemovedPhotos.folderName); kept for "
                     + "\(RemovedPhotos.retentionDays()) days.")
-            let moved = movedFrom
-            let outcome = await volumeLane.run {
-                RemovedPhotos.removeEmptyFolders(
-                    backupRoot: URL(filePath: dest.path, directoryHint: .isDirectory),
-                    movedFrom: moved)
-            }
-            if case .finished(let emptied) = outcome, !emptied.isEmpty {
-                runLog.log("Removed \(emptied.count) empty folder\(emptied.count == 1 ? "" : "s").")
+        }
+        guard let status = ended, leftoversEnded else {
+            // Killed, and still there: no retry, and nothing else on the
+            // folder until it's gone.
+            remember(stuck: child)
+            try throwIfStopped()
+            runLog.log("The export couldn't be ended; it's waiting on the backup folder.")
+            throw notResponding(dest, runLog)
+        }
+        if !movedFrom.isEmpty {
+            // In the cleanup helper, which Stop and a deadline can kill. A
+            // folder left behind is removed by a later backup that moves
+            // something out of it.
+            let result = try await runHelper(
+                [RemovedPhotos.removeEmptyFlag],
+                input: Data(movedFrom.map { $0 + "\n" }.joined().utf8),
+                timeout: timing.emptyFolders, dest, runLog)
+            if result.timedOut {
+                runLog.log(
+                    "Stopped removing empty folders after "
+                        + "\(Int(timing.emptyFolders / 60)) minutes.")
             }
         }
         onProgress(parser.progress)
         onLogTail(tail)
-        return (process.terminationStatus, parser.progress)
+        return (status, parser.progress)
     }
 
     // MARK: - Access test

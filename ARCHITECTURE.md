@@ -8,6 +8,7 @@ flowchart TD
     main -->|no flags| app["KeptApp<br/>menubar scene"]
     main -->|--staleness-check| stale["StalenessCheck<br/>run by launchd at 9:00, then exit"]
     main -->|--hold-removed file| hold["RemovedPhotos<br/>run by osxphotos per deleted file, then exit"]
+    main -->|--expire-removed, --remove-empty-folders| cleanup["RemovedPhotos<br/>the backup's cleanup, then exit"]
 
     app --> controller["BackupController<br/>@MainActor: state, settings, when to run"]
     controller --> views["MenuView · SettingsView · Onboarding"]
@@ -15,19 +16,21 @@ flowchart TD
     controller --> engine["BackupEngine<br/>actor: one backup, step by step"]
     controller --> helpers["DestinationPicker · StalenessAgent<br/>UninstallFlow · UpdateCheck"]
 
-    engine --> children["ShellCommand<br/>mount, probes, osxphotos"]
+    engine --> children["ShellCommand · ChildProcess<br/>mount, probes, cleanup, osxphotos"]
     engine --> lane["BlockingLane<br/>calls that can hang on a share"]
     engine --> safety["Destination checks · RemovedPhotos<br/>NoFollow · SettingsSeal"]
     children -.->|osxphotos calls back| hold
+    children -.-> cleanup
 ```
 
-## The three modes
+## The four modes
 
 `main.swift` picks before any UI exists:
 
 - **The menubar app**, the normal case.
 - **`--staleness-check`**, which launchd runs daily from a LaunchAgent (`StalenessAgent`). It reads the history, may post "Backups have stopped", and exits. It must never become the app, or the watchdog would reopen an app the user quit.
 - **`--hold-removed <file>`**, which osxphotos runs for each file it would delete. It moves the file into `Removed from Photos` instead, and exits. It only acts when a running Kept backup started it (`ProcessAncestry`).
+- **`--expire-removed <days>` and `--remove-empty-folders`**, the backup's own cleanup: deleting what's past the retention setting, and the folders an export emptied. They run as a process so the backup can kill them when Stop is pressed or a deadline passes. Same `ProcessAncestry` rule.
 
 ## Who owns what
 
@@ -35,7 +38,7 @@ flowchart TD
 |---|---|---|
 | `BackupController` | main actor, `@Observable` | What the panel and Settings show, the preferences, and the decisions: retries, the three-tries-per-slot cap, no unattended backups on battery |
 | `Scheduler` | main actor | The timer, the wake observer, and catch-up's rules (`fireCatchUpIfMissed`) |
-| `BackupEngine` | actor | One backup: lock, library access, the share, expiry, free space, the Photos library check, osxphotos with a stall watchdog. Takes its timings, interpreter, and command runner as parameters so tests can drive it |
+| `BackupEngine` | actor | One backup: lock, library access, the share, expiry (in the cleanup helper), free space, the Photos library check, osxphotos with a stall watchdog. Takes its timings, interpreter, and command runner as parameters so tests can drive it |
 | `DestinationPicker` | main actor | The folder picker and the alerts that refuse or warn |
 | `StalenessAgent` | — | The daily check's LaunchAgent and the "hasn't run" warnings |
 | `UninstallFlow`, `Uninstall` | main actor, — | Remove Kept: the dialogs, then the plan of what's removed |
@@ -45,8 +48,8 @@ flowchart TD
 
 ## Rules that hold everywhere
 
-- **Nothing blocks the cooperative pool.** Child processes go through `ShellCommand`, which drains both pipes on threads of their own and SIGKILLs on timeout. Calls that can hang on a share that stopped answering (`statfs`, existence checks, writes into the backup folder) go through a `BlockingLane`: their own thread, one at a time, with a timeout.
-- **Stop reaches every step.** Each child the engine starts registers with a `StopSignal`, which kills it when the user stops the backup.
+- **Nothing blocks the cooperative pool.** Child processes go through `ShellCommand`, which drains both pipes on threads of their own and SIGKILLs on timeout. Calls that can hang on a share that stopped answering (`statfs`, existence checks, writes into the backup folder) go through a `BlockingLane`: their own thread, one at a time, with a timeout. Anything that deletes or moves in the backup folder runs in a child process instead, because a thread stuck on a dead share can't be stopped and a process can.
+- **Stop reaches every step, and everything a step started.** Each child the engine starts registers with a `StopSignal`. Every child starts in a process group of its own (`ChildProcess`), and Stop, the stall watchdog, and timeouts kill the whole group, so a cleanup command osxphotos started can't outlive it and hold its output open. A killed child that still hasn't ended, stuck inside a call on the share, is remembered, and nothing else touches the backup folder until it's gone.
 - **The backup folder is treated as hostile.** Anyone who can write to the share can plant links in it. `RemovedPhotos` and `NoFollow` move and delete through open folder descriptors and never follow a link. The saved folder setting is sealed with a key in the keychain (`SettingsSeal`, `DestinationStore`), and the disk or share is checked against the one chosen before every backup (`Destination.volumeMismatch`).
 - **Children get a fixed environment** (`ChildEnvironment`), and Python runs isolated (`-I -B`), because they inherit Kept's Full Disk Access. Before each backup the engine checks the app's own signature (`AppSeal`), since Python would run an edited `.py` file without complaint.
 - **A backup that couldn't copy files isn't green.** osxphotos exits 0 even when files failed, so the engine records the error count. Such a run is still `.success`, which keeps the schedule and the daily check honest about a backup having run, but `RunRecord.isPartial` keeps it from ever showing as a green tick. osxphotos' missing count is deliberately ignored: it lumps shared items, whose originals Photos never keeps on the Mac, in with the library's own, so it's high in any library with shared albums. The README's Limitations and the welcome screen cover Optimize Mac Storage instead.

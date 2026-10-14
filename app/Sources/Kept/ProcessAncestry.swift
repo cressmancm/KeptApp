@@ -47,23 +47,4 @@ enum ProcessAncestry {
         guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
         return pid_t(info.pbi_ppid)
     }
-
-    /// Every process descended from `pid`, children before grandchildren.
-    static func descendants(of pid: pid_t) -> [pid_t] {
-        var found: [pid_t] = []
-        var queue = [pid]
-        while !queue.isEmpty, found.count < 4096 {
-            let parent = queue.removeFirst()
-            let count = proc_listchildpids(parent, nil, 0)
-            guard count > 0 else { continue }
-            var children = [pid_t](repeating: 0, count: Int(count) + 16)
-            let filled = proc_listchildpids(
-                parent, &children, Int32(children.count * MemoryLayout<pid_t>.size))
-            guard filled > 0 else { continue }
-            let kids = children.prefix(Int(filled)).filter { $0 > 0 }
-            found.append(contentsOf: kids)
-            queue.append(contentsOf: kids)
-        }
-        return found
-    }
 }
