@@ -221,5 +221,14 @@ final class DestinationTests: XCTestCase {
         XCTAssertEqual(shown("smb://me@nas.local/PhotoBackup"), "smb://nas.local/PhotoBackup")
         XCTAssertEqual(shown("smb://192.168.1.5/Chip%27s%20Photos"), "smb://192.168.1.5/Chip's Photos")
         XCTAssertNil(Destination(path: "/Volumes/Disk", isNetwork: false).shareAddress)
+        // The menu, alerts and failure messages name the server alone.
+        let bonjour = Destination(
+            path: "/Volumes/PhotoBackup", isNetwork: true,
+            smbURL: "smb://cressman@CressmanNAS._smb._tcp.local/PhotoBackup")
+        XCTAssertEqual(bonjour.serverName, "CressmanNAS.local")
+        XCTAssertTrue(
+            FailureCopy.message(
+                kind: .volumeUnreachable, rawMessage: nil, destination: bonjour, failedAt: nil
+            ).text.contains("**CressmanNAS.local**"))
     }
 }

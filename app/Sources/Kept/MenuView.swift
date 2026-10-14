@@ -195,11 +195,7 @@ private struct DestinationFacts: View {
     }
 
     private func locationName(_ destination: Destination) -> String {
-        if destination.isNetwork, let smb = destination.smbURL,
-            let host = URL(string: smb)?.host() {
-            return host
-        }
-        return destination.displayName
+        destination.serverName ?? destination.displayName
     }
 }
 

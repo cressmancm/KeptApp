@@ -114,10 +114,7 @@ enum DestinationPicker {
     /// " on nas.local" for a network share, empty for a local disk — the design
     /// asks for the host in the alert so two same-named folders can be told apart.
     private static func hostClause(_ destination: Destination) -> String {
-        guard destination.isNetwork,
-            let smbURL = destination.smbURL,
-            let host = URL(string: smbURL)?.host()
-        else { return "" }
+        guard let host = destination.serverName else { return "" }
         return " on \(host)"
     }
 }

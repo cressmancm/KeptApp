@@ -92,11 +92,7 @@ enum FailureCopy {
     /// user would recognise as "the thing that isn't there".
     private static func displayTarget(_ destination: Destination?) -> String {
         guard let destination else { return "the backup folder" }
-        if destination.isNetwork, let smbURL = destination.smbURL,
-            let host = URL(string: smbURL)?.host() {
-            return host
-        }
-        return destination.displayName
+        return destination.serverName ?? destination.displayName
     }
 
     /// "Last good backup: 30 hours ago" — the subtitle states the cost of the
