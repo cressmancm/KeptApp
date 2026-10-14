@@ -344,13 +344,27 @@ actor BackupEngine {
     /// otherwise turn every backup into "Another backup is already running"
     /// until it happened to exit. Matched by executable name rather than full
     /// path, so a development build still sees an installed copy's backup.
-    static func livePidHoldingLock() -> Int32? {
-        guard let contents = try? String(contentsOf: Config.lockFileURL, encoding: .utf8),
+    static func livePidHoldingLock(at lock: URL = Config.lockFileURL) -> Int32? {
+        guard let contents = try? String(contentsOf: lock, encoding: .utf8),
               let pid = Int32(contents.trimmingCharacters(in: .whitespacesAndNewlines)),
               kill(pid, 0) == 0,
               isKept(pid: pid)
         else { return nil }
         return pid
+    }
+
+    /// Takes the backup lock for something that mustn't overlap a backup,
+    /// from this copy of Kept or another: removing Kept. False when a backup
+    /// holds it, or it can't be written.
+    static func claimLock(at lock: URL = Config.lockFileURL) -> Bool {
+        guard livePidHoldingLock(at: lock) == nil else { return false }
+        do {
+            try "\(ProcessInfo.processInfo.processIdentifier)\n"
+                .write(to: lock, atomically: true, encoding: .utf8)
+        } catch {
+            return false
+        }
+        return true
     }
 
     static func isKept(

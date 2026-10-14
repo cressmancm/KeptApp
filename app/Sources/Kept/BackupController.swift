@@ -1056,10 +1056,17 @@ final class BackupController {
     /// Settings → Advanced → Remove Kept. See UninstallFlow.
     func beginUninstall() {
         guard !isUninstalling else { return }
+        // From the first dialog on, nothing starts. AppKit's modal loop
+        // services timers, so a scheduled, retry or plug-in start used to be
+        // able to begin while the confirmation was open, and the removal then
+        // deleted its state mid-export (production review S8, 2026-10-13).
+        isUninstalling = true
         Task {
-            await UninstallFlow.run(destination: destination, backupIsRunning: isRunning) {
-                self.isUninstalling = true
-            }
+            await UninstallFlow.run(destination: destination, backupIsRunning: isRunning)
+            // Still here: cancelled or refused. A slot that came round while
+            // the dialog was open is made up now, by catch-up's usual rules.
+            isUninstalling = false
+            scheduler.fireCatchUpIfMissed()
         }
     }
 }

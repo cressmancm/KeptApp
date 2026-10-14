@@ -11,22 +11,15 @@ import Foundation
 @MainActor
 enum UninstallFlow {
     /// Returns without changing anything if a backup is running or the user
-    /// cancels. Otherwise calls `willRemove`, removes Kept, and quits.
-    static func run(
-        destination: Destination?, backupIsRunning: Bool, willRemove: () -> Void
-    ) async {
+    /// cancels. Otherwise removes Kept, and quits. The caller stops starting
+    /// backups before calling this, and starts them again if it returns.
+    static func run(destination: Destination?, backupIsRunning: Bool) async {
         // build.sh refuses for the same reason: taking the app away mid-export
         // kills osxphotos, loses the run, and leaves the mirror half-updated.
         // The lock file is checked as well, so a run started by another copy
         // of Kept also counts.
         guard !backupIsRunning, BackupEngine.livePidHoldingLock() == nil else {
-            NSApp.activate(ignoringOtherApps: true)
-            let alert = NSAlert()
-            alert.messageText = "A backup is running"
-            alert.informativeText =
-                "Wait for it to finish, or stop it from the menubar, then try again."
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
+            backupRunningAlert().runModal()
             return
         }
 
@@ -49,11 +42,13 @@ enum UninstallFlow {
         guard confirmation.alert.runModal() == .alertSecondButtonReturn else { return }
         let keepExportDatabase = confirmation.keepExportDatabase?.state == .on
 
-        // The caller stops starting backups from here on. The summary alert
-        // below runs a modal loop, which services timers — so without this a
-        // scheduled slot landing in those few seconds would start a backup into
-        // the state directory that was just deleted.
-        willRemove()
+        // This copy of Kept starts nothing while the dialogs are up, but
+        // another copy could have started a backup meanwhile. Checked again
+        // now, and the lock taken, so none starts during the removal either.
+        guard BackupEngine.claimLock() else {
+            backupRunningAlert().runModal()
+            return
+        }
         // The Settings window saves its frame into the defaults domain when it
         // closes, and it used to close after the domain was deleted, which
         // brought the domain back with that one key. Closed first now.
@@ -73,6 +68,16 @@ enum UninstallFlow {
             CFPreferencesAppSynchronize(bundleIdentifier as CFString)
         }
         NSApp.terminate(nil)
+    }
+
+    static func backupRunningAlert() -> NSAlert {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "A backup is running"
+        alert.informativeText =
+            "Wait for it to finish, or stop it from the menubar, then try again."
+        alert.addButton(withTitle: "OK")
+        return alert
     }
 
     /// Refusal when the backup folder is inside something removing Kept
