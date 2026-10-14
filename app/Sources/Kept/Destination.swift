@@ -25,6 +25,13 @@ struct Destination: Codable, Equatable, Sendable {
     /// has never been backed up from one that was only just chosen. nil for a
     /// folder chosen before Kept kept it.
     var chosenAt: Date?
+    /// True from choosing this folder until a backup finishes: that backup
+    /// takes the System Photo Library as it finds it, without comparing it
+    /// with the backup (PhotosLibrary). Choosing the folder is how you say a
+    /// changed library is the one you mean, and it covers one backup, not
+    /// every library after it. Set without reading the library, which can
+    /// happen in setup before Full Disk Access is on.
+    var libraryConfirmed: Bool?
 
     var displayName: String { URL(filePath: path).lastPathComponent }
 

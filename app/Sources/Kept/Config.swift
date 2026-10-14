@@ -55,6 +55,10 @@ enum Config {
         return FileManager.default.isExecutableFile(atPath: python.path) ? python : nil
     }
 
+    /// Where Photos puts a new library, for when macOS doesn't say which
+    /// library is the System Photo Library (PhotosLibrary).
+    static let defaultPhotosLibrary = "~/Pictures/Photos Library.photoslibrary"
+
     /// Default Photos library location, used only as a permission probe.
     /// Libraries can live elsewhere; when this file doesn't exist the probe
     /// is skipped and a real run surfaces any permission problem loudly.

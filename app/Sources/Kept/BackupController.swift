@@ -329,7 +329,8 @@ final class BackupController {
         else { return }
         // A backup that started while the open panel was up.
         guard !isRunning else { return }
-        let picked = Destination.adopting(chosen, replacing: destination)
+        var picked = Destination.adopting(chosen, replacing: destination)
+        picked.libraryConfirmed = true
 
         clearPreview()
         guard DestinationStore.save(picked), DestinationStore.load() == picked else {
@@ -350,6 +351,20 @@ final class BackupController {
         scheduler.rearm()
         refreshDestinationStats()
         Task { await refreshPhotosAccess() }
+    }
+
+    /// A finished backup has used the confirmation that choosing the folder
+    /// gave (Destination.libraryConfirmed). Saved like any change to the
+    /// folder; if the keychain won't seal it, it stays set, and the next
+    /// backup again takes the library unchecked, as the one before did.
+    private func clearLibraryConfirmation() {
+        guard var updated = destination else { return }
+        updated.libraryConfirmed = nil
+        guard DestinationStore.save(updated), DestinationStore.load() == updated else {
+            if let destination { DestinationStore.save(destination, sealingKey: SettingsSeal.key()) }
+            return
+        }
+        destination = updated
     }
 
     // MARK: - Runs
@@ -508,6 +523,9 @@ final class BackupController {
         clearPreview()
         isRunning = false
         runStartedAt = nil
+        if record.outcome == .success, destination?.libraryConfirmed == true {
+            clearLibraryConfirmation()
+        }
         history = RunHistory.load()
         // Read back rather than trusted: the engine wrote it, and logged it
         // if it couldn't.

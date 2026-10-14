@@ -22,7 +22,9 @@ struct BackupError: Error, CustomStringConvertible {
 ///   4. mount with zombie-mount detection and force-remount
 ///   5. expiry of "Removed from Photos" folders past the retention setting
 ///   6. free-space check
-///   7. osxphotos incremental mirror export, relaunched once on failure;
+///   7. the Photos library: the System Photo Library, checked against the
+///      backup so a different or empty one can't retire it (PhotosLibrary)
+///   8. osxphotos incremental mirror export, relaunched once on failure;
 ///      files it would delete are moved to "Removed from Photos" instead
 actor BackupEngine {
     /// How long the engine waits on things, in one place so tests can shrink
@@ -48,6 +50,8 @@ actor BackupEngine {
     private let pythonOverride: URL?
     private let workingDirectory: URL
     private let appBundle: URL
+    private let systemLibrary: @Sendable () -> String?
+    private let exportDatabase: String
     private let stop = StopSignal()
     /// Every call that touches the backup folder and can block on a share that
     /// stopped answering. See BlockingLane.
@@ -59,12 +63,16 @@ actor BackupEngine {
         python: URL? = nil,
         workingDirectory: URL = Config.appSupportDir,
         appBundle: URL = Bundle.main.bundleURL,
+        systemLibrary: @escaping @Sendable () -> String? = { PhotosLibrary.systemLibraryPath() },
+        exportDatabase: String = Config.exportDBURL.path,
         command: CommandRunner? = nil
     ) {
         self.timing = timing
         self.pythonOverride = python
         self.workingDirectory = workingDirectory
         self.appBundle = appBundle
+        self.systemLibrary = systemLibrary
+        self.exportDatabase = exportDatabase
         self.command = command ?? { executable, arguments, timeout, stop in
             await ShellCommand.run(executable, arguments, timeout: timeout, stop: stop)
         }
@@ -166,8 +174,10 @@ actor BackupEngine {
             await expireRemovedPhotos(destination, runLog)
             try throwIfStopped()
             try await checkFreeSpace(destination, runLog)
+            let source = try await checkPhotosLibrary(destination, runLog)
             let progress = try await runExport(
-                destination, runLog, onProgress: onProgress, onLogTail: onLogTail)
+                destination, runLog, source: source, onProgress: onProgress,
+                onLogTail: onLogTail)
 
             record.end = .now
             record.outcome = .success
@@ -478,10 +488,11 @@ actor BackupEngine {
     /// and every backup failed at once.
     static func exportArguments(
         destinationPath: String,
+        source: ExportSource = ExportSource(library: nil, cleanup: true),
         exportDB: String = Config.exportDBURL.path,
         report: String = Config.reportURL.path
     ) -> [String] {
-        [
+        var arguments = [
             // -I (isolated) is load-bearing, not tidiness. Without it `-m`
             // puts the working directory first on sys.path — and the working
             // directory is Application Support/Kept, which anything
@@ -497,16 +508,27 @@ actor BackupEngine {
             "-B",
             "-m", "osxphotos",
             "export", destinationPath,
+        ]
+        // Named, never left to osxphotos, which picks the library Photos
+        // opened last. See PhotosLibrary.
+        if let library = source.library { arguments += ["--library", library] }
+        arguments += [
             "--export-by-date",
             "--update",
-            // No --cleanup: see RemovedPhotos. Its job is done by the
-            // --cleanup-command, which moves instead of deleting. No --keep
-            // either: osxphotos refuses --keep without --cleanup, so the keep
-            // rules are in the backup folder's .osxphotos_keep file
-            // (RemovedPhotos.writeKeepRules). No --cleanup-command-error: if a
-            // move fails, the export stops and the backup is marked failed.
-            // Nothing is deleted either way.
-            "--cleanup-command", RemovedPhotos.cleanupCommand,
+        ]
+        // No --cleanup: see RemovedPhotos. Its job is done by the
+        // --cleanup-command, which moves instead of deleting. No --keep
+        // either: osxphotos refuses --keep without --cleanup, so the keep
+        // rules are in the backup folder's .osxphotos_keep file
+        // (RemovedPhotos.writeKeepRules). No --cleanup-command-error: if a
+        // move fails, the export stops and the backup is marked failed.
+        // Nothing is deleted either way. Left out entirely when the library
+        // couldn't be checked against the backup: new photos are still
+        // copied, and nothing is set aside on a guess.
+        if source.cleanup {
+            arguments += ["--cleanup-command", RemovedPhotos.cleanupCommand]
+        }
+        arguments += [
             "--sidecar", "XMP",
             "--ramdb",
             "--exportdb", exportDB,
@@ -514,6 +536,84 @@ actor BackupEngine {
             "--retry", "3",
             "--verbose",
         ]
+        return arguments
+    }
+
+    // MARK: - The Photos library
+
+    /// Which library the export reads, and whether it may set aside what's
+    /// no longer in it.
+    struct ExportSource: Equatable, Sendable {
+        /// Passed as --library. nil leaves the choice to osxphotos.
+        var library: String?
+        /// Whether files no longer in the library are moved to Removed from
+        /// Photos. Off when the library couldn't be checked.
+        var cleanup: Bool
+    }
+
+    /// The System Photo Library, checked against the backup before anything
+    /// in the backup can be set aside. See PhotosLibrary.
+    ///
+    /// After the access check, which this needs: where macOS records the
+    /// System Photo Library takes Full Disk Access to read.
+    func checkPhotosLibrary(_ dest: Destination, _ runLog: RunLog) async throws -> ExportSource {
+        let fallback = (Config.defaultPhotosLibrary as NSString).expandingTildeInPath
+        let library: String
+        if let system = systemLibrary() {
+            library = system
+        } else if FileManager.default.fileExists(atPath: fallback) {
+            runLog.log("macOS didn't say which library is the System Photo Library; using \(fallback).")
+            library = fallback
+        } else {
+            throw BackupError(
+                "Kept can't tell which Photos library to back up. Open Photos, then try again.",
+                kind: .setupFailed)
+        }
+        let name = PhotosLibrary.displayName(library)
+        runLog.log("Photos library: \(library)")
+
+        let database = PhotosLibrary.database(ofLibrary: library)
+        guard FileManager.default.fileExists(atPath: database) else {
+            throw BackupError(
+                "Kept can't find your Photos library “\(name)”. If it's on a disk that isn't "
+                    + "connected, connect it, then try again.",
+                kind: .setupFailed)
+        }
+        if dest.libraryConfirmed == true {
+            runLog.log("Backup folder chosen since the last backup; library not compared with the backup.")
+            return ExportSource(library: library, cleanup: true)
+        }
+
+        let result = await command(
+            "/usr/bin/sqlite3",
+            PhotosLibrary.overlapArguments(
+                libraryDatabase: database, exportDatabase: exportDatabase),
+            120, stop)
+        try throwIfStopped()
+        guard result.status == 0, let overlap = PhotosLibrary.parseOverlap(result.stdout) else {
+            // Backed up anyway, without setting anything aside: the check is
+            // there to protect the backup, and a backup that copies new
+            // photos and retires nothing can't hurt it.
+            runLog.log(
+                "Couldn't compare the library with the backup (status \(result.status)): "
+                    + result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+            runLog.log("Backing up without moving anything to \(RemovedPhotos.folderName) this time.")
+            return ExportSource(library: library, cleanup: false)
+        }
+        runLog.log(
+            "Library has \(overlap.inLibrary) items; \(overlap.shared) of the "
+                + "\(overlap.backedUp) photos in the backup are in it.")
+        guard !overlap.isDifferentLibrary else {
+            let message = overlap.inLibrary == 0
+                ? "Your System Photo Library, “\(name)”, has no photos, so Kept left your backup "
+                    + "as it was. To back it up anyway, choose your backup folder again in Settings."
+                : "Only \(overlap.shared.formatted()) of the \(overlap.backedUp.formatted()) photos "
+                    + "in your backup are in your System Photo Library, “\(name)”, so Kept left "
+                    + "your backup as it was. To back up “\(name)” from now on, choose your backup "
+                    + "folder again in Settings."
+            throw BackupError(message, kind: .setupFailed)
+        }
+        return ExportSource(library: library, cleanup: true)
     }
 
     // MARK: - Removed photos
@@ -553,6 +653,7 @@ actor BackupEngine {
     func runExport(
         _ dest: Destination,
         _ runLog: RunLog,
+        source: ExportSource = ExportSource(library: nil, cleanup: true),
         onProgress: @escaping @Sendable (ExportProgress) -> Void,
         onLogTail: @escaping @Sendable ([String]) -> Void
     ) async throws -> ExportProgress {
@@ -562,7 +663,7 @@ actor BackupEngine {
             runLog.log("Starting osxphotos export (attempt \(attempt) of \(Config.exportAttempts))...")
 
             let (status, progress) = try await runOsxphotos(
-                dest, runLog, onProgress: onProgress, onLogTail: onLogTail)
+                dest, runLog, source: source, onProgress: onProgress, onLogTail: onLogTail)
             lastStatus = status
             if status == 0 { return progress }
             try throwIfStopped()
@@ -582,6 +683,7 @@ actor BackupEngine {
     private func runOsxphotos(
         _ dest: Destination,
         _ runLog: RunLog,
+        source: ExportSource,
         onProgress: @escaping @Sendable (ExportProgress) -> Void,
         onLogTail: @escaping @Sendable ([String]) -> Void
     ) async throws -> (status: Int32, progress: ExportProgress) {
@@ -607,7 +709,7 @@ actor BackupEngine {
         // The last suspension before launch. Past it, a Stop reaches the
         // process through `currentProcess`.
         try throwIfStopped()
-        process.arguments = Self.exportArguments(destinationPath: dest.path)
+        process.arguments = Self.exportArguments(destinationPath: dest.path, source: source)
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
