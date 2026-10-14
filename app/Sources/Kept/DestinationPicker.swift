@@ -82,6 +82,9 @@ enum DestinationPicker {
         case .cloudFolder:
             "Kept would move the files already in it, and the change would sync "
                 + "to your other devices. Create a new folder for the backup."
+        case .keptsOwnFolder:
+            "Kept keeps its own files there. Create a new folder for the backup "
+                + "somewhere else."
         }
         alert.alertStyle = .critical
         alert.addButton(withTitle: "OK")

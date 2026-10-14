@@ -99,7 +99,7 @@ final class UninstallTests: XCTestCase {
 
         let outcome = await Uninstall.perform([
             Uninstall.Item(label: "test", target: .directoryKeepingExportDatabase(dir))
-        ])
+        ], protecting: nil)
 
         XCTAssertTrue(outcome.isClean)
         XCTAssertEqual(
@@ -122,7 +122,7 @@ final class UninstallTests: XCTestCase {
 
         let outcome = await Uninstall.perform([
             Uninstall.Item(label: "test", target: .directoryKeepingExportDatabase(link))
-        ])
+        ], protecting: nil)
 
         XCTAssertFalse(outcome.isClean)
         XCTAssertEqual(outcome.failed.first?.reason, "It's a link, so Kept didn't follow it.")
@@ -213,5 +213,52 @@ final class UninstallTests: XCTestCase {
         XCTAssertTrue(targets.contains { if case .launchAgent = $0 { true } else { false } })
         XCTAssertTrue(targets.contains { if case .defaultsDomain = $0 { true } else { false } })
         XCTAssertEqual(targets.filter { if case .directory = $0 { true } else { false } }.count, 2)
+    }
+
+    // MARK: - The backup folder inside Kept's own (production review S5)
+
+    func testAStepHoldingTheBackupIsFound() {
+        let plan = plan()
+        XCTAssertEqual(
+            Uninstall.itemHolding(backup: logs.appending(path: "Photo Backup").path, in: plan)?
+                .label, "Logs")
+        XCTAssertEqual(
+            Uninstall.itemHolding(backup: appSupport.path, in: plan)?.label,
+            "History, report, and backup index")
+        // Case doesn't matter to the disk, so it doesn't here.
+        XCTAssertNotNil(
+            Uninstall.itemHolding(backup: "/users/TEST/library/logs/kept/x", in: plan))
+        XCTAssertNil(Uninstall.itemHolding(backup: "/Volumes/Photos/Backup", in: plan))
+        XCTAssertNil(Uninstall.itemHolding(backup: "/Users/test/Library/Logs/Kept 2", in: plan))
+        // Holding Kept's folders isn't the same as being in one.
+        XCTAssertNil(Uninstall.itemHolding(backup: "/Users/test/Library/Logs", in: plan))
+        XCTAssertNil(Uninstall.itemHolding(backup: nil, in: plan))
+    }
+
+    /// Run for real: a backup inside the logs folder survives, and the rest
+    /// of the plan still runs.
+    func testABackupInsideAStepIsLeftAndTheRestRemoved() async throws {
+        let fm = FileManager.default
+        let scratch = fm.temporaryDirectory.appending(path: "KeptUninstallS5-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: scratch) }
+        let state = scratch.appending(path: "Application Support/Kept")
+        let logs = scratch.appending(path: "Logs/Kept")
+        let backup = logs.appending(path: "Photo Backup")
+        try fm.createDirectory(at: state, withIntermediateDirectories: true)
+        try fm.createDirectory(at: backup.appending(path: "2024"), withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: state.appending(path: "runs.json"))
+        try Data("x".utf8).write(to: backup.appending(path: "2024/IMG_1.jpg"))
+
+        let outcome = await Uninstall.perform(
+            [
+                Uninstall.Item(label: "History", target: .directory(state)),
+                Uninstall.Item(label: "Logs", target: .directory(logs)),
+            ], protecting: backup.path)
+
+        XCTAssertTrue(fm.fileExists(atPath: backup.appending(path: "2024/IMG_1.jpg").path))
+        XCTAssertFalse(fm.fileExists(atPath: state.path))
+        XCTAssertEqual(outcome.removed, ["History"])
+        XCTAssertEqual(outcome.failed.map(\.label), ["Logs"])
+        XCTAssertEqual(outcome.failed.first?.reason, Uninstall.leftForBackup)
     }
 }

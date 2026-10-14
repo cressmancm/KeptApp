@@ -170,15 +170,46 @@ enum Uninstall {
         var isClean: Bool { failed.isEmpty }
     }
 
+    /// Why a step that holds the backup was skipped.
+    static let leftForBackup = "Your backup is in it, so Kept left it."
+
+    /// The first step that would delete the backup folder, because it's in
+    /// what that step removes. Choosing such a folder is refused now, but
+    /// one chosen before that still gets this far, and the promise is that
+    /// removing Kept never touches the backup (production review S5,
+    /// 2026-10-13).
+    static func itemHolding(backup: String?, in plan: [Item]) -> Item? {
+        guard let backup else { return nil }
+        return plan.first { item in
+            switch item.target {
+            case .directory(let url), .directoryKeepingExportDatabase(let url),
+                .appBundle(let url):
+                Set([url.standardizedFileURL.path, url.resolvingSymlinksInPath().path])
+                    .contains { Destination.isWithin(backup, $0) }
+            case .loginItem, .launchAgent, .permissions, .defaultsDomain:
+                false
+            }
+        }
+    }
+
     /// Works through the plan, and keeps going after a failure.
     ///
     /// Stopping at the first error would be the worst outcome available: a
     /// half-removed Kept with its LaunchAgent still loaded is exactly the mess
     /// this exists to prevent. Whatever could not be removed is reported with
     /// its path so the user can finish by hand.
-    static func perform(_ plan: [Item]) async -> Outcome {
+    ///
+    /// A step holding `backup` is never run, whatever the caller checked.
+    static func perform(_ plan: [Item], protecting backup: String?) async -> Outcome {
         var outcome = Outcome()
         for item in plan {
+            if itemHolding(backup: backup, in: [item]) != nil {
+                outcome.failed.append(
+                    Outcome.Failure(
+                        label: item.label, reason: leftForBackup,
+                        path: item.path))
+                continue
+            }
             do {
                 try await remove(item.target)
                 outcome.removed.append(item.label)

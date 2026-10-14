@@ -35,7 +35,8 @@ extension BackupController {
     /// there is no way to see one without pointing Kept at a folder you
     /// would rather it didn't touch.
     enum PreviewDialog: String, CaseIterable, Identifiable, Sendable {
-        case unsafeRoot, photosLibrary, cloudFolder, nonEmptyFolder, cantSave
+        case unsafeRoot, photosLibrary, cloudFolder, keptsOwnFolder, nonEmptyFolder, cantSave
+        case backupInKeptsFolder
 
         var id: String { rawValue }
 
@@ -44,6 +45,8 @@ extension BackupController {
             case .unsafeRoot: "Unsafe Folder"
             case .photosLibrary: "Holds a Library"
             case .cloudFolder: "Cloud Folder"
+            case .keptsOwnFolder: "Kept's Own Folder"
+            case .backupInKeptsFolder: "Remove Kept: Backup Inside"
             case .nonEmptyFolder: "Folder Not Empty"
             case .cantSave: "Can't Save Folder"
             }
@@ -67,6 +70,14 @@ extension BackupController {
         case .cloudFolder:
             DestinationPicker.unsafeMirrorRootAlert(
                 for: "iCloud Drive", refusal: .cloudFolder
+            ).runModal()
+        case .keptsOwnFolder:
+            DestinationPicker.unsafeMirrorRootAlert(
+                for: "Kept", refusal: .keptsOwnFolder
+            ).runModal()
+        case .backupInKeptsFolder:
+            UninstallFlow.backupInsideAlert(
+                backup: "~/Library/Logs/Kept/Photo Backup", holder: "Kept's logs"
             ).runModal()
         case .nonEmptyFolder:
             _ = DestinationPicker.nonEmptyFolderAlert(

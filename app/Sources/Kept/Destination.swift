@@ -226,12 +226,43 @@ extension Destination {
         /// A cloud folder's root, such as iCloud Drive. Moving its files would
         /// sync to every device signed in to it.
         case cloudFolder
+        /// Kept's own: its state, its logs or the app, inside one of them, or
+        /// a folder that holds one. Removing Kept deletes those folders, and
+        /// the mirror would move Kept's own files out of one it held.
+        case keptsOwnFolder
+    }
+
+    /// The folders Kept keeps its own files in, and the app itself when it's
+    /// a bundle.
+    static func keptsOwnFolders(bundle: URL = Bundle.main.bundleURL) -> [URL] {
+        [Config.appSupportDir, Config.logDir] + (bundle.pathExtension == "app" ? [bundle] : [])
+    }
+
+    /// Whether `path` is `folder` or inside it, a component at a time and
+    /// ignoring case, as a Mac's disks usually do.
+    static func isWithin(_ path: String, _ folder: String) -> Bool {
+        let inner = URL(filePath: path).standardizedFileURL.pathComponents.map { $0.lowercased() }
+        let outer = URL(filePath: folder).standardizedFileURL.pathComponents.map { $0.lowercased() }
+        return inner.count >= outer.count && Array(inner.prefix(outer.count)) == outer
+    }
+
+    /// Whether `path` overlaps one of Kept's own folders, either way round.
+    /// Kept's folders are on this Mac, so their links are resolved here; the
+    /// backup folder's path is taken as given (see isUnsafeMirrorRoot).
+    static func overlapsKeptsOwnFolders(_ path: String, owned: [URL]) -> Bool {
+        owned.contains { folder in
+            Set([folder.standardizedFileURL.path, folder.resolvingSymlinksInPath().path])
+                .contains { isWithin(path, $0) || isWithin($0, path) }
+        }
     }
 
     /// The path-only checks, cheap enough for the engine to repeat before
     /// every run. `entries` (the folder's top level) is read when the folder
     /// is picked, while it's known to be live.
-    static func refusal(path: String, entries: [String] = []) -> Refusal? {
+    static func refusal(
+        path: String, entries: [String] = [], owned: [URL] = keptsOwnFolders()
+    ) -> Refusal? {
+        if overlapsKeptsOwnFolders(path, owned: owned) { return .keptsOwnFolder }
         let components = URL(filePath: path).standardizedFileURL.pathComponents
         if components.contains(where: { $0.lowercased().hasSuffix(".photoslibrary") }) {
             return .insidePhotosLibrary

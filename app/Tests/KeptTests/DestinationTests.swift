@@ -132,4 +132,81 @@ final class DestinationTests: XCTestCase {
             XCTAssertNil(Destination.refusal(path: path), path)
         }
     }
+
+    // MARK: - Kept's own folders (production review S5)
+
+    /// Removing Kept deletes these, so a backup in one would go with it, and
+    /// a backup that held one would move Kept's own files aside.
+    func testKeptsOwnFoldersAreRefused() {
+        let library = FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: "Library").path
+        for path in [
+            "\(library)/Application Support/Kept",
+            "\(library)/Application Support/Kept/Photo Backup",
+            "\(library)/Logs/Kept/Photo Backup",
+            "\(library)/logs/KEPT/Photo Backup",
+            "\(library)/Application Support",
+            "\(library)/Logs",
+            "\(library)/Logs/Kept/../Kept/Photo Backup",
+        ] {
+            XCTAssertEqual(Destination.refusal(path: path), .keptsOwnFolder, path)
+        }
+        for path in [
+            "\(library)/Application Support/Kept Backup",
+            "\(library)/Logs/Other",
+            "/Volumes/Photos/Backup",
+        ] {
+            XCTAssertNotEqual(Destination.refusal(path: path), .keptsOwnFolder, path)
+        }
+    }
+
+    func testTheAppItselfIsRefused() {
+        let owned = Destination.keptsOwnFolders(bundle: URL(filePath: "/Applications/Kept.app"))
+        XCTAssertEqual(
+            Destination.refusal(path: "/Applications/Kept.app/Contents", owned: owned),
+            .keptsOwnFolder)
+        // A bare binary has no bundle to protect.
+        XCTAssertEqual(
+            Destination.keptsOwnFolders(bundle: URL(filePath: "/usr/local/bin")).count, 2)
+    }
+
+    /// Kept's folder reached through a link: the picker checks the folder with
+    /// links resolved, and Kept's own folders are compared resolved too.
+    func testALinkToKeptsOwnFolderIsRefused() throws {
+        let fm = FileManager.default
+        let scratch = fm.temporaryDirectory.appending(path: "KeptOwned-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: scratch) }
+        let real = scratch.appending(path: "Real/Kept")
+        try fm.createDirectory(at: real.appending(path: "Backup"), withIntermediateDirectories: true)
+        let link = scratch.appending(path: "Link")
+        try fm.createSymbolicLink(at: link, withDestinationURL: real)
+
+        // Kept's folder is the link; the backup is chosen at the real path.
+        XCTAssertEqual(
+            Destination.refusal(path: real.appending(path: "Backup").path, owned: [link]),
+            .keptsOwnFolder)
+        // The backup is chosen through the link, as the picker resolves it.
+        let picked = link.appending(path: "Backup")
+        XCTAssertEqual(
+            Destination.refusal(path: picked.resolvingSymlinksInPath().path, owned: [real]),
+            .keptsOwnFolder)
+    }
+
+    /// A folder chosen before Kept refused these is refused before every
+    /// backup, before anything is moved.
+    func testTheEngineRefusesABackupInKeptsOwnFolder() async throws {
+        let engine = BackupEngine(command: FakeCommands { _, _ in .ok() }.runner)
+        let logs = FileManager.default.temporaryDirectory
+            .appending(path: "KeptOwnedEngine-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: logs) }
+        nonisolated(unsafe) let log = try RunLog(in: logs)
+        let inside = Destination(
+            path: Config.logDir.appending(path: "Photo Backup").path, isNetwork: false)
+        do {
+            try await engine.ensureDestinationReady(inside, log)
+            XCTFail("A backup inside Kept's logs was accepted")
+        } catch let error as BackupError {
+            XCTAssertEqual(error.kind, .setupFailed)
+        }
+    }
 }

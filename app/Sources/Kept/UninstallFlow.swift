@@ -33,6 +33,18 @@ enum UninstallFlow {
         NSApp.activate(ignoringOtherApps: true)
         // Decided once, so the confirmation, the plan and the summary agree.
         let removeApp = Uninstall.canRemoveApp()
+        // Asked before the confirmation, so the answer can't be one that
+        // deletes the backup.
+        if let holder = Uninstall.itemHolding(
+            backup: destination?.path,
+            in: Uninstall.plan(keepExportDatabase: false, removeApp: removeApp))
+        {
+            let name = if case .appBundle = holder.target { "Kept.app" } else {
+                "Kept's \(holder.label.lowercased())"
+            }
+            backupInsideAlert(backup: destination?.path ?? "", holder: name).runModal()
+            return
+        }
         let confirmation = confirmAlert(destination: destination, removeApp: removeApp)
         guard confirmation.alert.runModal() == .alertSecondButtonReturn else { return }
         let keepExportDatabase = confirmation.keepExportDatabase?.state == .on
@@ -47,7 +59,8 @@ enum UninstallFlow {
         // brought the domain back with that one key. Closed first now.
         for window in NSApp.windows where window.isVisible { window.close() }
         let outcome = await Uninstall.perform(
-            Uninstall.plan(keepExportDatabase: keepExportDatabase, removeApp: removeApp))
+            Uninstall.plan(keepExportDatabase: keepExportDatabase, removeApp: removeApp),
+            protecting: destination?.path)
 
         summaryAlert(
             outcome, destination: destination, keptExportDatabase: keepExportDatabase,
@@ -60,6 +73,22 @@ enum UninstallFlow {
             CFPreferencesAppSynchronize(bundleIdentifier as CFString)
         }
         NSApp.terminate(nil)
+    }
+
+    /// Refusal when the backup folder is inside something removing Kept
+    /// deletes. A static builder so the review tools can show it.
+    static func backupInsideAlert(backup: String, holder: String) -> NSAlert {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Kept can't remove itself yet"
+        alert.informativeText = """
+            Your backup folder is inside \(holder), which removing Kept deletes:
+            \(backup)
+
+            Choose a different backup folder in Settings, or move this one, then try again.
+            """
+        alert.addButton(withTitle: "OK")
+        return alert
     }
 
     /// The confirmation, plus the checkbox that decides the export database's
@@ -134,11 +163,18 @@ enum UninstallFlow {
         // title already says it. Only what's left over, and why, is worth
         // reading. The Quit button says the rest.
         var paragraphs: [String] = []
-        if !outcome.failed.isEmpty {
+        // Never "delete these yourself" for a folder the backup is in.
+        let toDelete = outcome.failed.filter { $0.reason != Uninstall.leftForBackup }
+        let leftForBackup = outcome.failed.filter { $0.reason == Uninstall.leftForBackup }
+        if !leftForBackup.isEmpty {
+            paragraphs.append("Kept left these, because your backup is in them:\n"
+                + leftForBackup.map { "• \($0.label)\n  \($0.path ?? "")" }.joined(separator: "\n"))
+        }
+        if !toDelete.isEmpty {
             // Named with their paths: a partial uninstall the user cannot see
             // is worse than one they can finish in the Finder.
             paragraphs.append("Delete these yourself:\n"
-                + outcome.failed.map { failure in
+                + toDelete.map { failure in
                     var line = "• \(failure.label): \(failure.reason)"
                     if let path = failure.path { line += "\n  \(path)" }
                     return line
