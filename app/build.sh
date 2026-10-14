@@ -311,8 +311,21 @@ if pgrep -f "$KEPT_EXE" >/dev/null 2>&1; then
     echo "!!  Kept is still running (pid $(pgrep -f "$KEPT_EXE" | tr '\n' ' ')). Quit it, then re-run."
     exit 1
 fi
-rm -rf "$INSTALL_TO"
-ditto "$BUNDLE" "$INSTALL_TO"
+# Copy beside the old copy, then swap by rename, so the installed path is never
+# a half-copied app. The copy takes seconds (the bundled Python), and macOS
+# checks the daily check's program whenever the app changes: on 2026-10-13 it
+# read the binary mid-copy, found no Team ID, dropped the agent's link to
+# Kept.app, and posted "Software from <developer> can run in the background".
+INSTALL_DIR="$(dirname "$INSTALL_TO")"
+STAGED="$INSTALL_DIR/.Kept-installing-$$.app"
+REPLACED="$INSTALL_DIR/.Kept-replaced-$$.app"
+rm -rf "$STAGED" "$REPLACED"
+ditto "$BUNDLE" "$STAGED"
+if [[ -e "$INSTALL_TO" ]]; then
+    mv "$INSTALL_TO" "$REPLACED"
+fi
+mv "$STAGED" "$INSTALL_TO"
+rm -rf "$REPLACED"
 
 # Relaunch. This script quit a running copy to replace the binary, so leaving it
 # down is this script's bug, not the user's to remember. Left down after an
