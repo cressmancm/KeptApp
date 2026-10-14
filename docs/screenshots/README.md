@@ -26,8 +26,8 @@ Two steps: turn on Full Disk Access, then choose a backup folder.
 
 | General | Schedule | Advanced |
 | --- | --- | --- |
-| <img src="settings-1-general.png" width="300" alt="General settings: backup folder, deleted photos, options"> | <img src="settings-2-schedule.png" width="300" alt="Schedule settings: nightly, weekly or manually"> | <img src="settings-3-advanced.png" width="300" alt="Advanced settings: diagnostics, version, uninstall"> |
+| <img src="settings-1-general.png" width="300" alt="General settings: backup folder, deleted photos, options"> | <img src="settings-2-schedule.png" width="300" alt="Schedule settings: nightly, weekly, or manually"> | <img src="settings-3-advanced.png" width="300" alt="Advanced settings: diagnostics, version, uninstall"> |
 
 ## Notifications
 
-<img src="notifications.png" width="357" alt="Notifications for a complete, incomplete and failed backup, and for backups that have stopped">
+<img src="notifications.png" width="357" alt="Notifications for a complete, incomplete, or failed backup, and for backups that have stopped">

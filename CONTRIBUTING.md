@@ -19,7 +19,7 @@ The project uses Xcode's synchronized folders: the **Kept** target builds everyt
 - **With an Apple Developer team,** put in your team ID. Xcode signs with your Apple Development certificate and makes its own provisioning profile, and the hardened runtime stays on.
 - **Without one,** run `./make-cert.sh` and use the "Kept Dev" lines. A self-signed certificate has no Team ID, so these builds go without the hardened runtime, which would otherwise refuse Xcode's debug library and the tests.
 
-**What Run does to your installed Kept.** Xcode's build is another copy of Kept with the same identifier. Opening it quits the Kept in /Applications, unless that one is mid-backup, and both share the same settings, history and backup folder. When you're done, open your usual copy again, so the daily check points at it. A build signed differently from that copy needs Full Disk Access turned on for it separately.
+**What Run does to your installed Kept.** Xcode's build is another copy of Kept with the same identifier. Opening it quits the Kept in /Applications, unless that one is mid-backup, and both share the same settings, history, and backup folder. When you're done, open your usual copy again, so the daily check points at it. A build signed differently from that copy needs Full Disk Access turned on for it separately.
 
 **Tests in Xcode run inside the app,** as Xcode does for any app. `main.swift` notices and starts nothing of Kept's own, so a test run never quits your Kept or starts a backup. Two tests skip there: the `--hold-removed` one, which needs the test runner to have a parent process to inspect, and whichever of the two keychain-store tests doesn't match how the app is signed.
 
@@ -31,7 +31,7 @@ Installed and released builds come from the scripts, not from Xcode:
 cd app
 ./make-cert.sh       # once, unless you have a Developer ID: a self-signed "Kept Dev" certificate
 ./bundle-python.sh   # once: downloads Python and installs osxphotos from the lock, into .build/python-env
-./build.sh           # builds, signs, installs to /Applications and opens Kept
+./build.sh           # builds, signs, installs to /Applications, and opens Kept
 ```
 
 Or, from `app`, `make setup` then `make install`; `make` on its own lists the rest. `make-cert.sh` may ask for your login password; it adds a code-signing certificate trusted for your account only. `bundle-python.sh` checks the Python download against a pinned SHA-256 and installs every package from `python-requirements.lock` with hashes. It reuses `.build/python-env` until the script or the lock changes, then builds it again, and checks the packages against the lock either way (`check-python-lock.py`). `--refresh` rebuilds it regardless.
@@ -55,11 +55,11 @@ The two tests in `ExportArgumentsTests` run osxphotos itself: they use `.build/p
 
 New tests must not touch real state. Use `SecurityTests.scratchDefaults(named:for:)` for preferences, a temporary folder for files, and your own service name for keychain items. `EngineTests` shows how to drive the engine with fake commands and a stand-in for osxphotos.
 
-`swift run --package-path app` starts Kept without a bundle. That's enough for the panel and the setup screens, but there are no notifications, login item or daily check, there's no bundled Python (a backup fails at once), and its preferences are kept apart from the installed app's.
+`swift run --package-path app` starts Kept without a bundle. That's enough for the panel and the setup screens, but there are no notifications, login item, or daily check, there's no bundled Python (a backup fails at once), and its preferences are kept apart from the installed app's.
 
 ## The parts you can't click
 
-- **Review tools.** In a build from Xcode or a local `build.sh` build, hold Option while opening Settings → Advanced. You can force the panel into any state, force the menubar icon, open any setup screen, and show the warnings, alerts, update row and notifications that are otherwise hard to reach. Nothing they do is saved. Release builds leave them out.
+- **Review tools.** In a build from Xcode or a local `build.sh` build, hold Option while opening Settings → Advanced. You can force the panel into any state, force the menubar icon, open any setup screen, and show the warnings, alerts, update row, and notifications that are otherwise hard to reach. Nothing they do is saved. Release builds leave them out.
 - **The daily check.** `launchctl kickstart gui/$(id -u)/com.chipcressman.Kept.staleness` makes launchd run it now, which also proves launchd can start it. Running `Kept.app/Contents/MacOS/Kept --staleness-check` yourself does the same work without that proof.
 - **Moving deleted photos.** `Kept --hold-removed` refuses to act unless a running Kept backup started it, so run a real backup. Delete a test photo from Photos first, or point Kept at a folder with a stray file in it. `RemovedPhotosTests` covers the moving itself.
 
@@ -85,16 +85,16 @@ Kept reads the Photos library as files, which needs Full Disk Access. macOS ties
 
 Switching between identities resets Full Disk Access and the seal once.
 
-Only the maintainer can produce releases. Notarizing needs the Developer ID, its provisioning profile and the notarization credentials. See [RELEASING.md](RELEASING.md).
+Only the maintainer can produce releases. Notarizing needs the Developer ID, its provisioning profile, and the notarization credentials. See [RELEASING.md](RELEASING.md).
 
 ## Writing text people see
 
-Kept's copy is short, plain and says the outcome first:
+Kept's copy is short, plain, and says the outcome first:
 
 - Say what's true and what to do. Give the reason only when someone needs it to decide.
 - Titles of six words or fewer, a subtitle of one clause, a caption of one sentence, an alert of two sentences, three if data is at risk.
 - Full stops, not dashes. A single status phrase takes no full stop.
-- Paths, exit codes and tool names go in the log, never the interface.
+- Paths, exit codes, and tool names go in the log, never the interface.
 - One name per thing: **backup folder** (not destination or mirror), **backup** (not run or export), **stop** (dialogs keep Cancel), **connected** (not mounted), **copying** (not exporting), **backup index** (not export database).
 
 ## Pull requests

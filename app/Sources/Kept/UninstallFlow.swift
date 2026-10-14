@@ -80,9 +80,9 @@ enum UninstallFlow {
         alert.alertStyle = .critical
         alert.messageText = "Remove Kept from this Mac?"
         var text = removeApp
-            ? "Kept moves to the Trash, and its settings, history, logs and permissions are deleted.\n"
+            ? "Kept moves to the Trash, and its settings, history, logs, and permissions are deleted.\n"
             : """
-                Kept's settings, history and logs are deleted from this account. \
+                Kept's settings, history, and logs are deleted from this account. \
                 Kept.app stays in Applications: removing it needs an administrator.
 
                 """

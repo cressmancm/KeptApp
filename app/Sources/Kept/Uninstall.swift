@@ -41,7 +41,7 @@ enum Uninstall {
 
     struct Item: Sendable {
         /// What the confirmation and the summary call this. Written for the
-        /// user, not after the code — "History, report and backup index"
+        /// user, not after the code — "History, report, and backup index"
         /// rather than "Application Support".
         let label: String
         let target: Target
@@ -147,7 +147,7 @@ enum Uninstall {
                     label: "History and report (backup index kept)",
                     target: .directoryKeepingExportDatabase(appSupport))
                 : Item(
-                    label: "History, report and backup index",
+                    label: "History, report, and backup index",
                     target: .directory(appSupport)))
         items.append(Item(label: "Logs", target: .directory(logs)))
         if let bundleIdentifier {

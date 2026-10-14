@@ -35,7 +35,7 @@ flowchart TD
 |---|---|---|
 | `BackupController` | main actor, `@Observable` | What the panel and Settings show, the preferences, and the decisions: retries, the three-tries-per-slot cap, no unattended backups on battery |
 | `Scheduler` | main actor | The timer, the wake observer, and catch-up's rules (`fireCatchUpIfMissed`) |
-| `BackupEngine` | actor | One backup: lock, library access, the share, expiry, free space, osxphotos with a stall watchdog. Takes its timings, interpreter and command runner as parameters so tests can drive it |
+| `BackupEngine` | actor | One backup: lock, library access, the share, expiry, free space, osxphotos with a stall watchdog. Takes its timings, interpreter, and command runner as parameters so tests can drive it |
 | `DestinationPicker` | main actor | The folder picker and the alerts that refuse or warn |
 | `StalenessAgent` | — | The daily check's LaunchAgent and the "hasn't run" warnings |
 | `UninstallFlow`, `Uninstall` | main actor, — | Remove Kept: the dialogs, then the plan of what's removed |
