@@ -32,6 +32,11 @@ struct Destination: Codable, Equatable, Sendable {
     /// every library after it. Set without reading the library, which can
     /// happen in setup before Full Disk Access is on.
     var libraryConfirmed: Bool?
+    /// The folder itself on a local disk, by its file number, so another
+    /// folder moved into its place isn't taken for it. nil on a share, where
+    /// the server decides the numbers, and for a folder chosen before Kept
+    /// recorded one.
+    var folderID: UInt64?
 
     var displayName: String { URL(filePath: path).lastPathComponent }
 
@@ -43,8 +48,13 @@ struct Destination: Codable, Equatable, Sendable {
 }
 
 extension Destination {
-    /// Captures volume facts about a chosen folder.
-    static func from(folder: URL) -> Destination {
+    /// Captures volume facts about a chosen folder, at its real path: every
+    /// backup checks that the path still leads there without a link
+    /// (NoFollow.openRoot), so a folder chosen through one would never pass.
+    static func from(folder chosen: URL) -> Destination {
+        var resolved = [CChar](repeating: 0, count: Int(PATH_MAX))
+        let folder = realpath(chosen.path, &resolved) != nil
+            ? URL(filePath: String(cString: resolved), directoryHint: .isDirectory) : chosen
         var fs = statfs()
         guard statfs(folder.path, &fs) == 0 else {
             return Destination(path: folder.path, isNetwork: false)
@@ -56,12 +66,37 @@ extension Destination {
         let uuid = isLocal
             ? (try? folder.resourceValues(forKeys: [.volumeUUIDStringKey]))?.volumeUUIDString
             : nil
+        var info = stat()
+        let folderID = isLocal && stat(folder.path, &info) == 0 ? UInt64(info.st_ino) : nil
         return Destination(
             path: folder.path,
             isNetwork: !isLocal,
             smbURL: fstype == "smbfs" ? smbURL(fromMountFrom: mountFrom) : nil,
             mountPoint: isLocal ? nil : mountPoint,
-            volumeUUID: uuid)
+            volumeUUID: uuid,
+            folderID: folderID)
+    }
+
+    /// Why the folder at `path` isn't the one chosen, or nil when it is: the
+    /// path now runs through a link, or, on a local disk, another folder has
+    /// taken its place. Checked before every backup and every export attempt.
+    /// Opens the folder, so on a share it runs after the mount probe.
+    func folderMismatch() -> String? {
+        let root: Int32
+        do {
+            root = try NoFollow.openRoot(path)
+        } catch {
+            return "“\(displayName)” leads to a different folder than the one you chose. "
+                + "Choose the folder again in Settings."
+        }
+        defer { close(root) }
+        guard let folderID else { return nil }
+        var info = stat()
+        guard fstat(root, &info) == 0, UInt64(info.st_ino) == folderID else {
+            return "“\(displayName)” isn't the folder you chose: another folder has taken "
+                + "its place. Choose the folder again in Settings."
+        }
+        return nil
     }
 
     /// `picked`, as the folder Kept will now back up to. Choosing the current

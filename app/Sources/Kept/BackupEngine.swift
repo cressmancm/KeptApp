@@ -401,7 +401,7 @@ actor BackupEngine {
             var isDir: ObjCBool = false
             let exists = FileManager.default.fileExists(atPath: dest.path, isDirectory: &isDir)
                 && isDir.boolValue
-            return (exists, exists ? dest.volumeMismatch() : nil)
+            return (exists, exists ? dest.volumeMismatch() ?? dest.folderMismatch() : nil)
         }
         guard case .finished(let result) = check else { throw notResponding(dest, runLog) }
         guard result.exists else {
@@ -762,12 +762,24 @@ actor BackupEngine {
         var environment = ChildEnvironment.sanitized()
         environment[RemovedPhotos.executableVariable] = executable
         environment[RemovedPhotos.backupRootVariable] = dest.path
+        // The folder again, just before osxphotos is given its path: the
+        // checks at the start of the backup were minutes ago.
         let rules = await volumeLane.run(timeout: timing.volumeCall) {
-            Result { try RemovedPhotos.writeKeepRules(
-                backupRoot: URL(filePath: dest.path, directoryHint: .isDirectory)) }
+            Result { () throws -> Void in
+                if let mismatch = dest.folderMismatch() {
+                    throw BackupError(mismatch, kind: .setupFailed)
+                }
+                try RemovedPhotos.writeKeepRules(
+                    backupRoot: URL(filePath: dest.path, directoryHint: .isDirectory))
+            }
         }
         guard case .finished(let written) = rules else { throw notResponding(dest, runLog) }
-        try written.get()
+        do {
+            try written.get()
+        } catch let error as BackupError {
+            runLog.log("Refusing to back up: \(error.message)")
+            throw error
+        }
         // The last suspension before launch. Past it, a Stop reaches the
         // export through the stop signal.
         try throwIfStopped()

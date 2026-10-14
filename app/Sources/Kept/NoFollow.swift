@@ -35,13 +35,46 @@ enum NoFollow {
         }
     }
 
-    /// Opens a folder by absolute path. The path itself may run through links
-    /// — the backup folder is the user's own choice, and /Volumes paths often
-    /// do — so only what lies beneath it is held to no-follow.
+    /// Opens a folder by absolute path, which must be the folder's real path:
+    /// no link anywhere along it. It used to be allowed to run through links,
+    /// as the user's own choice, and that let anything running as the user
+    /// swap the chosen folder for a link to another folder on the same disk,
+    /// which every check then passed: the export, the moves and the deletions
+    /// all happened in the link's target (production review S2, 2026-10-13).
+    /// The folder is chosen by its real path (Destination.from), so a link
+    /// here means it was swapped since. The system's own /tmp, /var and /etc,
+    /// links into /private, are taken as what they are.
     static func openRoot(_ path: String) throws -> Int32 {
         let descriptor = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
         guard descriptor >= 0 else { throw Failure.posix("Couldn't open \(path)") }
+        guard let real = realPath(of: descriptor), isSamePath(real, path) else {
+            close(descriptor)
+            throw Failure("\(path) leads somewhere else through a link")
+        }
         return descriptor
+    }
+
+    /// Where an open file or folder really is, from the file system.
+    static func realPath(of descriptor: Int32) -> String? {
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard fcntl(descriptor, F_GETPATH, &buffer) == 0 else { return nil }
+        return String(cString: buffer)
+    }
+
+    /// Whether two absolute paths name the same place without a link between
+    /// them: equal once the system's /tmp, /var and /etc are spelled with
+    /// /private, ignoring case as a Mac's disks usually do.
+    static func isSamePath(_ real: String, _ given: String) -> Bool {
+        func canonical(_ path: String) -> String {
+            var path = URL(filePath: path).standardizedFileURL.path
+            while path.count > 1, path.hasSuffix("/") { path.removeLast() }
+            for system in ["/tmp", "/var", "/etc"]
+            where path == system || path.hasPrefix(system + "/") {
+                path = "/private" + path
+            }
+            return path.lowercased()
+        }
+        return canonical(real) == canonical(given)
     }
 
     /// Opens `components` as nested folders beneath `base`, one at a time,
