@@ -27,21 +27,28 @@ enum AppSeal {
     /// (checked 2026-10-13 with a binary re-signed while it ran). nil when
     /// the disk no longer matches, or there's no signature: every check then
     /// fails.
-    nonisolated(unsafe) static let runningRequirement: SecRequirement? = {
+    nonisolated(unsafe) static let runningRequirement: SecRequirement? = requirementOfRunningCode()
+
+    /// What `runningRequirement` holds, read now.
+    ///
+    /// No flags on the validity check. `kSecCSDoNotValidateResources` is a
+    /// static-code flag: running code refuses it with errSecCSInvalidFlags,
+    /// so this always came back nil, and every backup in a signed Kept
+    /// failed with "Part of Kept has been changed" (2026-10-14, the first
+    /// nightly on the S4 fix). Running code isn't checked against its
+    /// resources anyway; isIntact does that. This takes milliseconds.
+    static func requirementOfRunningCode() -> SecRequirement? {
         var code: SecCode?
         var requirement: SecRequirement?
-        // Resources aren't read here; isIntact checks them. This is about
-        // whether the signature on disk is still the one launched.
         guard SecCodeCopySelf([], &code) == errSecSuccess, let code,
-            SecCodeCheckValidity(
-                code, SecCSFlags(rawValue: kSecCSDoNotValidateResources), nil) == errSecSuccess,
+            SecCodeCheckValidity(code, [], nil) == errSecSuccess,
             // A SecCode is a SecStaticCode to Security, which Swift's types
             // don't say.
             SecCodeCopyDesignatedRequirement(
                 unsafeBitCast(code, to: SecStaticCode.self), [], &requirement) == errSecSuccess
         else { return nil }
         return requirement
-    }()
+    }
 
     /// A bundle's designated requirement, as its signature on disk states it.
     static func designatedRequirement(of bundle: URL) -> SecRequirement? {

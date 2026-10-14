@@ -92,6 +92,13 @@ final class AppSealTests: XCTestCase {
         XCTAssertEqual(AppSeal.isIntact(copy, signedLike: requirement), false)
     }
 
+    /// The test runner is signed, as the app is. With a flag running code
+    /// refuses, this came back nil in every signed Kept, so every backup
+    /// failed the seal check (2026-10-14). No test read it before.
+    func testTheRunningCodesRequirementIsRead() {
+        XCTAssertNotNil(AppSeal.requirementOfRunningCode())
+    }
+
     func testThereIsNothingToCheckOutsideABundle() {
         XCTAssertNil(AppSeal.isIntact(URL(filePath: "/usr/bin")))
     }

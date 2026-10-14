@@ -323,6 +323,9 @@ actor BackupEngine {
             return
         case .finished(false?):
             runLog?.log("Kept's signature doesn't match its files: \(bundle.path)")
+            if AppSeal.runningRequirement == nil {
+                runLog?.log("Kept couldn't read its own signature when it started")
+            }
             throw BackupError("Part of Kept has been changed. Reinstall it.", kind: .setupFailed)
         case .timedOut, .busy:
             throw BackupError("Kept couldn't check its own files. Try again.", kind: .setupFailed)
