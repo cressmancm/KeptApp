@@ -58,6 +58,8 @@ actor BackupEngine {
     private let workingDirectory: URL
     private let appBundle: URL
     private let systemLibrary: @Sendable () -> String?
+    /// Whether the bundle is intact (AppSeal), injectable for tests.
+    private let appSeal: @Sendable (URL) -> Bool?
     private let exportDatabase: String
     private let stop = StopSignal()
     /// Every call that touches the backup folder and can block on a share that
@@ -80,9 +82,11 @@ actor BackupEngine {
         systemLibrary: @escaping @Sendable () -> String? = { PhotosLibrary.systemLibraryPath() },
         exportDatabase: String = Config.exportDBURL.path,
         helper: URL? = Bundle.main.executableURL,
+        appSeal: @escaping @Sendable (URL) -> Bool? = { AppSeal.isIntact($0) },
         command: CommandRunner? = nil
     ) {
         self.helper = helper
+        self.appSeal = appSeal
         self.timing = timing
         self.pythonOverride = python
         self.workingDirectory = workingDirectory
@@ -304,16 +308,21 @@ actor BackupEngine {
 
     // MARK: - Kept's own files
 
-    /// First of all: a changed bundle would run the change with Full Disk
-    /// Access (AppSeal). Off the actor, on a thread of its own.
-    func checkOwnFiles(_ runLog: RunLog) async throws {
+    /// First of all, and again right before every launch of Python, the
+    /// backup's and Test Library Access's alike: a changed bundle would run
+    /// the change with Full Disk Access (AppSeal). Test Library Access used
+    /// to skip it (production review S4). Off the actor, on a thread of its
+    /// own. The check and the launch are still two steps, so a change in
+    /// the moment between them isn't caught.
+    func checkOwnFiles(_ runLog: RunLog?) async throws {
         let bundle = appBundle
-        let check = await BlockingLane().run(timeout: 120) { AppSeal.isIntact(bundle) }
+        let seal = appSeal
+        let check = await BlockingLane().run(timeout: 120) { seal(bundle) }
         switch check {
         case .finished(true?), .finished(nil):
             return
         case .finished(false?):
-            runLog.log("Kept's signature doesn't match its files: \(bundle.path)")
+            runLog?.log("Kept's signature doesn't match its files: \(bundle.path)")
             throw BackupError("Part of Kept has been changed. Reinstall it.", kind: .setupFailed)
         case .timedOut, .busy:
             throw BackupError("Kept couldn't check its own files. Try again.", kind: .setupFailed)
@@ -759,6 +768,7 @@ actor BackupEngine {
             throw BackupError("Part of Kept is missing. Reinstall it.", kind: .setupFailed)
         }
         try refuseWhileStuck(dest, runLog)
+        try await checkOwnFiles(runLog)
         var environment = ChildEnvironment.sanitized()
         environment[RemovedPhotos.executableVariable] = executable
         environment[RemovedPhotos.backupRootVariable] = dest.path
@@ -1003,6 +1013,13 @@ actor BackupEngine {
 
         guard let python else {
             return "Part of Kept is missing. Reinstall it."
+        }
+        do {
+            try await checkOwnFiles(nil)
+        } catch let error as BackupError {
+            return error.message
+        } catch {
+            return "\(error)"
         }
         let result = await ShellCommand.run(
             python.path,

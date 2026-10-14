@@ -35,6 +35,10 @@ if CommandLine.arguments.contains(RemovedPhotos.expireFlag)
     RemovedPhotos.runMaintenanceAndExit(arguments: CommandLine.arguments)
 }
 
+// What a changed copy of Kept will be held to, read before anything else
+// can change the app on disk. See AppSeal.
+_ = AppSeal.runningRequirement
+
 // Opened straight from a download, macOS runs Kept from a temporary copy whose
 // path would go into the login item and the daily check. Move first, before
 // this copy claims anything or quits the installed one.

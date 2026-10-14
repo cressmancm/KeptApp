@@ -255,6 +255,37 @@ final class EngineTests: XCTestCase {
             return XCTFail("Expected the lane to be free again")
         }
     }
+
+    // MARK: - Kept's own files before Python (production review S4)
+
+    /// Test Library Access ran the bundled Python without checking the
+    /// bundle. Now a changed bundle starts nothing.
+    func testTestLibraryAccessRunsNothingFromAChangedBundle() async throws {
+        let marker = scratch.appending(path: "python-ran")
+        let python = try fakePython("touch \"\(marker.path)\"")
+        let engine = BackupEngine(
+            timing: fast, python: python, workingDirectory: scratch,
+            appBundle: scratch.appending(path: "Kept.app"), appSeal: { _ in false })
+        let result = await engine.accessTest()
+        XCTAssertEqual(result, "Part of Kept has been changed. Reinstall it.")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    /// Checked before each launch of osxphotos, not only at the start.
+    func testAnExportRunsNothingFromAChangedBundle() async throws {
+        let marker = scratch.appending(path: "python-ran")
+        let python = try fakePython("touch \"\(marker.path)\"")
+        let engine = BackupEngine(
+            timing: fast, python: python, workingDirectory: scratch,
+            appBundle: scratch.appending(path: "Kept.app"), appSeal: { _ in false })
+        do {
+            _ = try await export(with: engine, log: try runLog())
+            XCTFail("A changed bundle was run")
+        } catch let error as BackupError {
+            XCTAssertEqual(error.kind, .setupFailed)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+    }
 }
 
 /// Scripted stand-in for the engine's child processes.
