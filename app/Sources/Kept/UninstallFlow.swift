@@ -157,8 +157,9 @@ enum UninstallFlow {
             backup += " The backup index stays in \(folder) for a reinstall."
         }
         paragraphs.append(backup)
-        // With Kept.app gone its permissions went too; with it staying, the
-        // ones every account shares stay with it (Uninstall.tccResetArguments).
+        // With Kept.app gone its permissions went too; with it staying, they
+        // stay with it, since every account shares them
+        // (Uninstall.tccResetArguments).
         if !removedApp {
             paragraphs.append(
                 "Kept.app and its Privacy & Security settings are shared by every "

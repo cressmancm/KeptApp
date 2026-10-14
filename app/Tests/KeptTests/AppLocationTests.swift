@@ -24,14 +24,6 @@ final class AppLocationTests: XCTestCase {
         XCTAssertFalse(arguments.dropLast().contains { $0.contains("nas.local") })
     }
 
-    func testAutomationDenialIsRecognised() {
-        XCTAssertTrue(BackupEngine.isAutomationDenied(
-            "execution error: Not authorized to send Apple events to Finder. (-1743)"))
-        XCTAssertFalse(BackupEngine.isAutomationDenied(
-            "execution error: The operation couldn’t be completed. (-43)"))
-        XCTAssertFalse(BackupEngine.isAutomationDenied(""))
-    }
-
     /// The lookup isn't in the public headers, so a macOS that drops it
     /// should fail here rather than leave every download asking to be moved
     /// by hand.

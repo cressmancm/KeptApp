@@ -409,14 +409,6 @@ actor BackupEngine {
         if !mountResult.stderr.isEmpty {
             runLog.appendRaw(mountResult.stderr.trimmingCharacters(in: .newlines))
         }
-        // Said plainly rather than left to time out as "Couldn't reach": the
-        // share is fine, and waiting a minute for it won't help.
-        if Self.isAutomationDenied(mountResult.stderr) {
-            throw BackupError(
-                "Kept isn't allowed to reconnect “\(dest.displayName)”. Turn on Kept in "
-                    + "System Settings → Privacy & Security → Automation.",
-                kind: .setupFailed)
-        }
 
         let clock = ContinuousClock()
         let started = clock.now
@@ -442,8 +434,14 @@ actor BackupEngine {
             "Mounted and healthy after \(started.duration(to: clock.now).components.seconds)s.")
     }
 
-    /// The reconnect, as `osascript` arguments. Shared with the check the
-    /// controller runs when a share is chosen, so both raise the same prompt.
+    /// The reconnect, as `osascript` arguments.
+    ///
+    /// A bare `mount volume`, not `tell application "Finder"`: it's a
+    /// scripting-addition command that runs inside osascript and sends no
+    /// Apple Event, so it needs no Automation permission, and Kept no
+    /// apple-events entitlement. Verified 2026-10-13: Kept had never appeared
+    /// under Automation, and a build without the entitlement reconnected an
+    /// ejected share in under a second.
     static func mountScriptArguments(_ smbURL: String) -> [String] {
         [
             "-e", "on run argv",
@@ -451,12 +449,6 @@ actor BackupEngine {
             "-e", "end run",
             "--", smbURL,
         ]
-    }
-
-    /// osascript's "Not authorized to send Apple events" (-1743): Automation
-    /// is off for Kept, or its prompt was answered Don't Allow.
-    static func isAutomationDenied(_ stderr: String) -> Bool {
-        stderr.contains("(-1743)")
     }
 
     // MARK: - Free space

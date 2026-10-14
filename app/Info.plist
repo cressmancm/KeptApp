@@ -44,12 +44,6 @@
          without a usage description rather than merely denying it. -->
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Kept copies your library to a backup folder every night.</string>
-    <!-- Shown in the Automation prompt. Reconnecting the NAS is an Apple Event
-         (osascript `mount volume`), and macOS asks before allowing it. Kept
-         raises that prompt when a share is chosen, while someone is there,
-         rather than the first night the share drops. -->
-    <key>NSAppleEventsUsageDescription</key>
-    <string>Kept reconnects your backup drive when it's disconnected.</string>
     <key>NSHumanReadableCopyright</key>
     <string>Chip Cressman</string>
 </dict>

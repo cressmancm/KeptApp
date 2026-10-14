@@ -27,10 +27,9 @@ enum Uninstall {
     enum Target: Sendable {
         case loginItem
         case launchAgent(plist: URL, label: String)
-        /// Kept's privacy permissions: only Automation (driving Finder to mount
-        /// a share), which macOS keeps per account, unless Kept.app is going
-        /// too. See `tccResetArguments`.
-        case permissions(bundleIdentifier: String, allAccounts: Bool)
+        /// Kept's privacy permissions, only when Kept.app is going too. See
+        /// `tccResetArguments`.
+        case permissions(bundleIdentifier: String)
         case directory(URL)
         /// Everything in the directory except the export database, which the
         /// user chose to keep. See `isExportDatabase`.
@@ -57,24 +56,22 @@ enum Uninstall {
         }
     }
 
-    /// What the permission reset runs.
+    /// What the permission reset runs, when Kept.app goes to the Trash.
     ///
-    /// `tccutil reset All` from any account — a standard one included — also
-    /// clears Kept's Full Disk Access and network-drive access, which macOS
-    /// holds for the whole Mac. Found in testing on 2026-10-05: uninstalling
-    /// from a test account silently broke the main account's nightly backup.
-    /// So while Kept.app stays for other accounts, only Automation, the one
-    /// grant kept per account, is reset.
+    /// Then no account can run Kept, so everything is reset. Leaving the
+    /// grants helped no one and misled: System Settings hides an entry whose
+    /// app is gone, so "remove it there" pointed at nothing, and a reinstall
+    /// found Full Disk Access already on (2026-10-06).
     ///
-    /// When Kept.app goes to the Trash, no account can run Kept, so everything
-    /// is reset. Leaving the grants then helped no one and misled: System
-    /// Settings hides an entry whose app is gone, so "remove it there" pointed
-    /// at nothing, and a reinstall found Full Disk Access already on
-    /// (2026-10-06).
-    nonisolated static func tccResetArguments(
-        bundleIdentifier: String, allAccounts: Bool
-    ) -> [String] {
-        ["reset", allAccounts ? "All" : "AppleEvents", bundleIdentifier]
+    /// While Kept.app stays for other accounts, nothing is reset. Kept's one
+    /// grant, Full Disk Access, belongs to the whole Mac: `tccutil reset All`
+    /// from a standard test account cleared it and silently broke the main
+    /// account's nightly backup (2026-10-05). Kept used to reset Automation
+    /// there, as the one grant macOS keeps per account, but Kept never needs
+    /// Automation: reconnecting a share is `mount volume`, which sends no
+    /// Apple Event (verified 2026-10-13 with the entitlement removed).
+    nonisolated static func tccResetArguments(bundleIdentifier: String) -> [String] {
+        ["reset", "All", bundleIdentifier]
     }
 
     /// Whether this account can move Kept.app to the Trash. /Applications
@@ -133,13 +130,11 @@ enum Uninstall {
             Item(
                 label: "Daily backup check",
                 target: .launchAgent(plist: launchAgentPlist, label: launchAgentLabel)))
-        if let bundleIdentifier {
-            let allAccounts = bundleURL != nil && removeApp
+        if let bundleIdentifier, bundleURL != nil, removeApp {
             items.append(
                 Item(
-                    label: allAccounts ? "Privacy permissions" : "Automation permission",
-                    target: .permissions(
-                        bundleIdentifier: bundleIdentifier, allAccounts: allAccounts)))
+                    label: "Privacy permissions",
+                    target: .permissions(bundleIdentifier: bundleIdentifier)))
         }
         items.append(
             keepExportDatabase
@@ -218,13 +213,13 @@ enum Uninstall {
                 "/bin/launchctl", ["bootout", "gui/\(getuid())/\(label)"], timeout: 20)
             try removeIfPresent(plist)
 
-        case .permissions(let bundleIdentifier, let allAccounts):
+        case .permissions(let bundleIdentifier):
             // Scoped to this bundle identifier, so it cannot reach another
             // app's grants. Failure is reported rather than swallowed, because
             // the remedy is manual and the user needs telling.
             let result = await ShellCommand.run(
                 "/usr/bin/tccutil",
-                tccResetArguments(bundleIdentifier: bundleIdentifier, allAccounts: allAccounts),
+                tccResetArguments(bundleIdentifier: bundleIdentifier),
                 timeout: 20)
             guard result.status == 0 else {
                 let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)

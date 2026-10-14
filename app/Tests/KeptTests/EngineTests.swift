@@ -98,25 +98,6 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(order.last, "/bin/ls")
     }
 
-    func testDeniedAutomationIsSaidPlainly() async throws {
-        let commands = FakeCommands { call, _ in
-            switch call.executable {
-            case "/usr/bin/osascript":
-                .failed("execution error: Not authorized to send Apple events to Finder. (-1743)")
-            default: .ok()
-            }
-        }
-        let engine = BackupEngine(timing: fast, command: commands.runner)
-        nonisolated(unsafe) let log = try runLog()
-        do {
-            try await engine.ensureMount(share, log)
-            XCTFail("Expected the reconnect to fail")
-        } catch let error as BackupError {
-            XCTAssertEqual(error.kind, .setupFailed)
-            XCTAssertTrue(error.message.contains("Automation"), error.message)
-        }
-    }
-
     /// Stop used to wait out the reconnect: up to two minutes of mount script
     /// and a minute of waiting for the share.
     func testStopInterruptsAReconnect() async throws {

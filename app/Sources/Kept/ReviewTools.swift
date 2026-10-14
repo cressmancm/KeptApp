@@ -35,7 +35,7 @@ extension BackupController {
     /// there is no way to see one without pointing Kept at a folder you
     /// would rather it didn't touch.
     enum PreviewDialog: String, CaseIterable, Identifiable, Sendable {
-        case unsafeRoot, photosLibrary, cloudFolder, nonEmptyFolder, cantReconnect, cantSave
+        case unsafeRoot, photosLibrary, cloudFolder, nonEmptyFolder, cantSave
 
         var id: String { rawValue }
 
@@ -45,7 +45,6 @@ extension BackupController {
             case .photosLibrary: "Holds a Library"
             case .cloudFolder: "Cloud Folder"
             case .nonEmptyFolder: "Folder Not Empty"
-            case .cantReconnect: "Can't Reconnect"
             case .cantSave: "Can't Save Folder"
             }
         }
@@ -73,12 +72,6 @@ extension BackupController {
             _ = DestinationPicker.nonEmptyFolderAlert(
                 for: sample, retentionDays: removedRetentionDays
             ).runModal()
-        case .cantReconnect:
-            if DestinationPicker.cantReconnectAlert(for: sample.displayName).runModal()
-                == .alertFirstButtonReturn
-            {
-                DestinationPicker.openAutomationSettings()
-            }
         case .cantSave:
             DestinationPicker.cantSaveAlert(for: "Photos Backup 2", previous: sample).runModal()
         }

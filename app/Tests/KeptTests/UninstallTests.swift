@@ -186,19 +186,10 @@ final class UninstallTests: XCTestCase {
 
     /// Full Disk Access belongs to the whole Mac. `reset All` cleared it from a
     /// standard test account and broke the main account's nightly backup, so
-    /// while Kept.app stays, the reset is pinned to Automation, the one grant
-    /// kept per account.
-    func testPermissionResetLeavesSharedGrantsWhileTheAppStays() {
+    /// while Kept.app stays, no permission is reset at all.
+    func testNoPermissionIsResetWhileTheAppStays() {
         let targets = plan(removeApp: false).map(\.target)
-        let allAccounts = targets.compactMap {
-            if case .permissions(_, let allAccounts) = $0 { allAccounts } else { nil }
-        }
-        XCTAssertEqual(allAccounts, [false])
-        let arguments = Uninstall.tccResetArguments(bundleIdentifier: identifier, allAccounts: false)
-        XCTAssertEqual(arguments, ["reset", "AppleEvents", identifier])
-        for shared in ["All", "SystemPolicyAllFiles", "SystemPolicyNetworkVolumes"] {
-            XCTAssertFalse(arguments.contains(shared), shared)
-        }
+        XCTAssertFalse(targets.contains { if case .permissions = $0 { true } else { false } })
     }
 
     /// With Kept.app going to the Trash no account can run Kept, so its
@@ -206,12 +197,9 @@ final class UninstallTests: XCTestCase {
     /// came back switched on with a reinstall.
     func testPermissionsAllGoWhenTheAppGoes() {
         let targets = plan(removeApp: true).map(\.target)
-        let allAccounts = targets.compactMap {
-            if case .permissions(_, let allAccounts) = $0 { allAccounts } else { nil }
-        }
-        XCTAssertEqual(allAccounts, [true])
+        XCTAssertTrue(targets.contains { if case .permissions = $0 { true } else { false } })
         XCTAssertEqual(
-            Uninstall.tccResetArguments(bundleIdentifier: identifier, allAccounts: true),
+            Uninstall.tccResetArguments(bundleIdentifier: identifier),
             ["reset", "All", identifier])
     }
 

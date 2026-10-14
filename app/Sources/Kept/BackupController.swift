@@ -314,8 +314,7 @@ final class BackupController {
     // MARK: - Destination
 
     /// The folder picker, with its refusals and the non-empty-folder warning
-    /// (DestinationPicker). A NAS folder also gets the reconnect tried once,
-    /// so any Automation prompt appears now rather than at 2 AM.
+    /// (DestinationPicker).
     ///
     /// Not while a backup is running: that backup carries on to the folder it
     /// started with, and the panel would say it was going somewhere else.
@@ -351,12 +350,6 @@ final class BackupController {
         scheduler.rearm()
         refreshDestinationStats()
         Task { await refreshPhotosAccess() }
-        if picked.isNetwork, let smbURL = picked.smbURL {
-            Task {
-                await DestinationPicker.askToReconnectWhileAttended(
-                    smbURL, name: picked.displayName)
-            }
-        }
     }
 
     // MARK: - Runs

@@ -6,22 +6,13 @@
   bundled interpreter (see python-entitlements.plist); the app links nothing
   outside /System and /usr/lib and keeps library validation fully enforced.
 
-  apple-events is load-bearing, not boilerplate. The destination is mounted by
-  driving Finder with `osascript`, which is an Apple Event, and under the
-  hardened runtime tccd refuses to even *prompt* for kTCCServiceAppleEvents
-  when the sending process lacks this entitlement:
-
-      Prompting policy for hardened runtime; service: kTCCServiceAppleEvents
-      requires entitlement com.apple.security.automation.apple-events but it
-      is missing
-
-  Observed 2026-08-13, after the bundle identifier changed to com.chip.Kept.
-  The old identifier had carried a stored AppleEvents grant since July, so it
-  never had to ask again and this gap stayed invisible for weeks.
+  No apple-events. It was here from 2026-08-13 on the belief that reconnecting
+  the NAS drove the Finder; it doesn't. The reconnect is a bare `mount volume`
+  (BackupEngine.mountScriptArguments), which sends no Apple Event, so Kept
+  never needs Automation. Verified 2026-10-13: a build without this
+  entitlement reconnected an ejected share in under a second.
 -->
 <plist version="1.0">
 <dict>
-    <key>com.apple.security.automation.apple-events</key>
-    <true/>
 </dict>
 </plist>
