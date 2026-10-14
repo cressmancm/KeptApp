@@ -161,6 +161,23 @@ extension Destination {
         return current == volumeUUID ? nil : different
     }
 
+    /// The share's address as a person would write it: "smb://nas.local/Photos".
+    /// The saved URL is what macOS reported when the folder was chosen, which
+    /// for a share opened from Finder's Network sidebar is the Bonjour service
+    /// name ("nas._smb._tcp.local") with the account name in front. Both are
+    /// right, and both are noise on screen.
+    var shareAddress: String? {
+        guard let smbURL else { return nil }
+        guard let components = URLComponents(string: smbURL), var host = components.host,
+            !host.isEmpty
+        else { return smbURL }
+        let bonjour = "._smb._tcp.local"
+        if host.lowercased().hasSuffix(bonjour) {
+            host = String(host.dropLast(bonjour.count)) + ".local"
+        }
+        return "smb://" + host + components.path
+    }
+
     /// Same server and share, however the server was named when mounted.
     /// Finder may mount a Bonjour host as "nas._smb._tcp.local" one day and
     /// "nas.local" the next, and the user name and port don't identify the

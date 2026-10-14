@@ -209,4 +209,17 @@ final class DestinationTests: XCTestCase {
             XCTAssertEqual(error.kind, .setupFailed)
         }
     }
+
+    /// What Settings shows: no account name, no Bonjour service name.
+    func testAShareIsShownAsAPersonWouldWriteIt() {
+        func shown(_ url: String) -> String? {
+            Destination(path: "/Volumes/PhotoBackup", isNetwork: true, smbURL: url).shareAddress
+        }
+        XCTAssertEqual(
+            shown("smb://cressman@CressmanNAS._smb._tcp.local/PhotoBackup"),
+            "smb://CressmanNAS.local/PhotoBackup")
+        XCTAssertEqual(shown("smb://me@nas.local/PhotoBackup"), "smb://nas.local/PhotoBackup")
+        XCTAssertEqual(shown("smb://192.168.1.5/Chip%27s%20Photos"), "smb://192.168.1.5/Chip's Photos")
+        XCTAssertNil(Destination(path: "/Volumes/Disk", isNetwork: false).shareAddress)
+    }
 }

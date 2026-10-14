@@ -236,7 +236,7 @@ private struct GeneralSettings: View {
     private var destinationLines: [String] {
         guard let destination = controller.destination else { return [] }
         var lines: [String] = []
-        if let smb = destination.smbURL { lines.append(smb) }
+        if let address = destination.shareAddress { lines.append(address) }
         lines.append(destination.path)
         return lines
     }

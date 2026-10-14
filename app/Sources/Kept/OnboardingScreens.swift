@@ -412,7 +412,7 @@ struct ChooseFolderScreen: View {
     /// The share URL identifies a network folder; a local disk has only a path.
     private var destinationSubtitle: String? {
         guard let destination = controller.destination else { return nil }
-        return destination.smbURL ?? destination.path
+        return destination.shareAddress ?? destination.path
     }
 
     /// Hidden until there is a folder to describe — with nothing chosen there
