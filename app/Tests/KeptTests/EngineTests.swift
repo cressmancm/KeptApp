@@ -157,14 +157,17 @@ final class EngineTests: XCTestCase {
             echo "Exporting IMG_1.jpg"
             [ "$n" -ge 2 ]
             """)
-        let engine = BackupEngine(timing: fast, python: python, workingDirectory: scratch)
+        let engine = BackupEngine(
+            timing: fast, python: python, exportGuard: ExportGuardTests.source,
+            workingDirectory: scratch)
         _ = try await export(with: engine, log: try runLog())
         XCTAssertEqual(try String(contentsOfFile: count, encoding: .utf8), "2\n")
     }
 
     func testAnExportThatKeepsFailingFails() async throws {
         let engine = BackupEngine(
-            timing: fast, python: try fakePython("exit 1"), workingDirectory: scratch)
+            timing: fast, python: try fakePython("exit 1"),
+            exportGuard: ExportGuardTests.source, workingDirectory: scratch)
         do {
             _ = try await export(with: engine, log: runLog())
             XCTFail("Expected the export to fail")
@@ -177,7 +180,9 @@ final class EngineTests: XCTestCase {
     /// kills it, both attempts, and the backup fails rather than hanging.
     func testAHungExportIsKilled() async throws {
         let python = try fakePython("echo started; exec sleep 60")
-        let engine = BackupEngine(timing: fast, python: python, workingDirectory: scratch)
+        let engine = BackupEngine(
+            timing: fast, python: python, exportGuard: ExportGuardTests.source,
+            workingDirectory: scratch)
         nonisolated(unsafe) let log = try runLog()
         let started = ContinuousClock.now
         do {
@@ -194,7 +199,9 @@ final class EngineTests: XCTestCase {
 
     func testStopEndsTheExport() async throws {
         let python = try fakePython("echo started; exec sleep 60")
-        let engine = BackupEngine(timing: fast, python: python, workingDirectory: scratch)
+        let engine = BackupEngine(
+            timing: fast, python: python, exportGuard: ExportGuardTests.source,
+            workingDirectory: scratch)
         nonisolated(unsafe) let log = try runLog()
         let folder = try backupFolder()
         let started = ContinuousClock.now
@@ -264,7 +271,7 @@ final class EngineTests: XCTestCase {
         let marker = scratch.appending(path: "python-ran")
         let python = try fakePython("touch \"\(marker.path)\"")
         let engine = BackupEngine(
-            timing: fast, python: python, workingDirectory: scratch,
+            timing: fast, python: python, exportGuard: ExportGuardTests.source, workingDirectory: scratch,
             appBundle: scratch.appending(path: "Kept.app"), appSeal: { _ in false })
         let result = await engine.accessTest()
         XCTAssertEqual(result, "Part of Kept has been changed. Reinstall it.")
@@ -276,7 +283,7 @@ final class EngineTests: XCTestCase {
         let marker = scratch.appending(path: "python-ran")
         let python = try fakePython("touch \"\(marker.path)\"")
         let engine = BackupEngine(
-            timing: fast, python: python, workingDirectory: scratch,
+            timing: fast, python: python, exportGuard: ExportGuardTests.source, workingDirectory: scratch,
             appBundle: scratch.appending(path: "Kept.app"), appSeal: { _ in false })
         do {
             _ = try await export(with: engine, log: try runLog())

@@ -76,7 +76,7 @@ Kept is a SwiftUI menubar app. The copying itself is done by [osxphotos](https:/
 - **Your network drive.** Reconnecting a NAS that's disconnected, even one that's stuck.
 - **Deleted photos.** Setting them aside in the backup, then clearing them out after the time you chose.
 - **Keeping you informed.** The menubar panel, setup, settings, and notifications.
-- **Keeping your backup safe.** Kept won't use your home folder, a system or cloud folder, or a folder holding an Apple Photos library as the backup folder. Before every backup, it checks that the disk is still the one you chose. It never follows links inside the backup, and it runs osxphotos in an isolated environment.
+- **Keeping your backup safe.** Kept won't use your home folder, a system or cloud folder, or a folder holding an Apple Photos library as the backup folder. Before every backup, it checks that the disk is still the one you chose. Inside the backup, Kept doesn't follow links: its own moves and deletions, and the folders and copies osxphotos makes there, refuse a link instead of going through it. It runs osxphotos in an isolated environment.
 
 | Folder | What's in it |
 |---|---|

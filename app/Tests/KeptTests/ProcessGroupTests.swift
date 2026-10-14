@@ -86,7 +86,9 @@ final class ProcessGroupTests: XCTestCase {
     /// open, and the backup waited on it.
     func testStopEndsTheExportAndItsCleanupCommand() async throws {
         let python = try script("python", "echo started\n\(lingeringHelper)\nwait")
-        let engine = BackupEngine(timing: fast, python: python, workingDirectory: scratch)
+        let engine = BackupEngine(
+            timing: fast, python: python, exportGuard: ExportGuardTests.source,
+            workingDirectory: scratch)
         nonisolated(unsafe) let log = try runLog()
         let folder = try backupFolder()
         let started = ContinuousClock.now
@@ -111,7 +113,9 @@ final class ProcessGroupTests: XCTestCase {
     func testAnExportThatEndsBeforeItsChildIsNotKeptWaiting() async throws {
         let python = try script(
             "python", "echo started\n\(lingeringHelper)\n\(untilItsRunning)\nexit 0")
-        let engine = BackupEngine(timing: fast, python: python, workingDirectory: scratch)
+        let engine = BackupEngine(
+            timing: fast, python: python, exportGuard: ExportGuardTests.source,
+            workingDirectory: scratch)
         nonisolated(unsafe) let log = try runLog()
         let started = ContinuousClock.now
         _ = try await engine.runExport(
@@ -128,7 +132,9 @@ final class ProcessGroupTests: XCTestCase {
             echo started
             while :; do sleep 30 & echo $! >> "\(pidFile)"; sleep 0.02; done
             """)
-        let engine = BackupEngine(timing: fast, python: python, workingDirectory: scratch)
+        let engine = BackupEngine(
+            timing: fast, python: python, exportGuard: ExportGuardTests.source,
+            workingDirectory: scratch)
         nonisolated(unsafe) let log = try runLog()
         let started = ContinuousClock.now
         do {
@@ -199,7 +205,7 @@ final class ProcessGroupTests: XCTestCase {
             echo "Moved to Removed from Photos/2026-10-13/2024/05/02/IMG_2.jpg"
             """)
         let engine = BackupEngine(
-            timing: fast, python: python, workingDirectory: scratch, helper: helper)
+            timing: fast, python: python, exportGuard: ExportGuardTests.source, workingDirectory: scratch, helper: helper)
         nonisolated(unsafe) let log = try runLog()
         let started = ContinuousClock.now
         _ = try await engine.runExport(

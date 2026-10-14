@@ -139,7 +139,8 @@ final class FolderIdentityTests: XCTestCase {
         let python = scratch.appending(path: "python")
         try "#!/bin/sh\ntouch \"\(ran.path)\"\n".write(to: python, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: python.path)
-        let engine = BackupEngine(python: python, workingDirectory: scratch)
+        let engine = BackupEngine(
+            python: python, exportGuard: ExportGuardTests.source, workingDirectory: scratch)
         nonisolated(unsafe) let log = try RunLog(in: scratch.appending(path: "logs"))
         do {
             _ = try await engine.runExport(picked, log, onProgress: { _ in }, onLogTail: { _ in })

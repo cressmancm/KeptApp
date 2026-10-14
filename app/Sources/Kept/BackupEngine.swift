@@ -55,6 +55,7 @@ actor BackupEngine {
     private let timing: Timing
     private let command: CommandRunner
     private let pythonOverride: URL?
+    private let exportGuardOverride: URL?
     private let workingDirectory: URL
     private let appBundle: URL
     private let systemLibrary: @Sendable () -> String?
@@ -77,6 +78,7 @@ actor BackupEngine {
     init(
         timing: Timing = Timing(),
         python: URL? = nil,
+        exportGuard: URL? = nil,
         workingDirectory: URL = Config.appSupportDir,
         appBundle: URL = Bundle.main.bundleURL,
         systemLibrary: @escaping @Sendable () -> String? = { PhotosLibrary.systemLibraryPath() },
@@ -89,6 +91,7 @@ actor BackupEngine {
         self.appSeal = appSeal
         self.timing = timing
         self.pythonOverride = python
+        self.exportGuardOverride = exportGuard
         self.workingDirectory = workingDirectory
         self.appBundle = appBundle
         self.systemLibrary = systemLibrary
@@ -157,6 +160,11 @@ actor BackupEngine {
     }
 
     private var python: URL? { pythonOverride ?? Config.bundledPython }
+    private var exportGuard: URL? { exportGuardOverride ?? Config.exportGuard }
+
+    /// The export's exit status when it refused a link in the backup folder
+    /// (LINK_REFUSED in kept_export.py).
+    static let linkRefusedStatus: Int32 = 75
 
     func run(
         trigger: BackupTrigger,
@@ -577,6 +585,7 @@ actor BackupEngine {
     /// and every backup failed at once.
     static func exportArguments(
         destinationPath: String,
+        exportGuard: String,
         source: ExportSource = ExportSource(library: nil, cleanup: true),
         exportDB: String = Config.exportDBURL.path,
         report: String = Config.reportURL.path
@@ -595,7 +604,9 @@ actor BackupEngine {
             // signed app, breaks its signature, and is a file the
             // interpreter would load next time without anything checking it.
             "-B",
-            "-m", "osxphotos",
+            // osxphotos, through Kept's launcher: nothing it does in the
+            // backup folder follows a link (production review S3).
+            exportGuard, destinationPath,
             "export", destinationPath,
         ]
         // Named, never left to osxphotos, which picks the library Photos
@@ -747,6 +758,12 @@ actor BackupEngine {
             lastStatus = status
             if status == 0 { return progress }
             try throwIfStopped()
+            if status == Self.linkRefusedStatus {
+                // Not tried again: the link is still there. Everything else was
+                // copied; the log names the link.
+                runLog.log("The export refused a link in the backup folder.")
+                throw BackupError(Self.linkRefusedMessage, kind: .setupFailed)
+            }
 
             runLog.log("Export attempt \(attempt) exited with status \(status).")
             if attempt < Config.exportAttempts {
@@ -760,6 +777,10 @@ actor BackupEngine {
             kind: .exportFailed)
     }
 
+    static let linkRefusedMessage =
+        "Some photos weren't backed up: part of your backup folder is a link, "
+        + "and Kept won't follow it. The log shows where. Remove the link, then try again."
+
     private func runOsxphotos(
         _ dest: Destination,
         _ runLog: RunLog,
@@ -767,7 +788,7 @@ actor BackupEngine {
         onProgress: @escaping @Sendable (ExportProgress) -> Void,
         onLogTail: @escaping @Sendable ([String]) -> Void
     ) async throws -> (status: Int32, progress: ExportProgress) {
-        guard let python, let executable = helper?.path else {
+        guard let python, let exportGuard, let executable = helper?.path else {
             throw BackupError("Part of Kept is missing. Reinstall it.", kind: .setupFailed)
         }
         try refuseWhileStuck(dest, runLog)
@@ -802,7 +823,9 @@ actor BackupEngine {
         let child: ChildProcess
         do {
             child = try ChildProcess.launch(
-                python.path, Self.exportArguments(destinationPath: dest.path, source: source),
+                python.path,
+                Self.exportArguments(
+                    destinationPath: dest.path, exportGuard: exportGuard.path, source: source),
                 environment: environment, directory: workingDirectory,
                 stdin: nothing,
                 stdout: pipe.fileHandleForWriting.fileDescriptor,
@@ -1014,7 +1037,7 @@ actor BackupEngine {
             return "The test couldn't start: \(error.localizedDescription)"
         }
 
-        guard let python else {
+        guard let python, let exportGuard else {
             return "Part of Kept is missing. Reinstall it."
         }
         do {
@@ -1027,8 +1050,10 @@ actor BackupEngine {
         let result = await ShellCommand.run(
             python.path,
             [
-                "-I", "-B",  // same isolation as a real run — see exportArguments
-                "-m", "osxphotos",
+                // Same isolation, and the same launcher, as a real run: see
+                // exportArguments.
+                "-I", "-B",
+                exportGuard.path, tempDir.path,
                 "export", tempDir.path,
                 "--limit", "5",
                 "--exportdb", tempDir.appending(path: "test-export.db").path,

@@ -213,14 +213,14 @@ final class PhotosLibraryTests: XCTestCase {
 
     func testTheLibraryIsPassedAndCleanupCanBeLeftOut() {
         let named = BackupEngine.exportArguments(
-            destinationPath: "/backup",
+            destinationPath: "/backup", exportGuard: "/kept_export.py",
             source: BackupEngine.ExportSource(library: "/L.photoslibrary", cleanup: true))
         let at = try? XCTUnwrap(named.firstIndex(of: "--library"))
         XCTAssertEqual(at.map { named[$0 + 1] }, "/L.photoslibrary")
         XCTAssertTrue(named.contains("--cleanup-command"))
 
         let cautious = BackupEngine.exportArguments(
-            destinationPath: "/backup",
+            destinationPath: "/backup", exportGuard: "/kept_export.py",
             source: BackupEngine.ExportSource(library: "/L.photoslibrary", cleanup: false))
         XCTAssertFalse(cautious.contains("--cleanup-command"))
         XCTAssertFalse(cautious.contains("--cleanup"))

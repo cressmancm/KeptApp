@@ -19,6 +19,10 @@ IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:--}"
 
 "$APP_DIR/bundle-python.sh"
 
+# Kept's launcher for osxphotos, every build: it's Kept's own code, not the
+# Python the stamp below covers.
+cp "$APP_DIR/Python/kept_export.py" "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources/kept_export.py"
+
 STAMP="$DEST/.kept-embedded"
 KEY="$(stat -f %m "$ENV_DIR/bin/python3") $IDENTITY $CONFIGURATION"
 if [[ -f "$STAMP" && "$(cat "$STAMP")" == "$KEY" ]]; then

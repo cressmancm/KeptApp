@@ -21,6 +21,7 @@ final class ExportArgumentsTests: XCTestCase {
 
         let arguments = BackupEngine.exportArguments(
             destinationPath: dest.path,
+            exportGuard: ExportGuardTests.source.path,
             exportDB: temp.appending(path: "export.db").path,
             report: temp.appending(path: "report.csv").path)
             + ["--dry-run", "--limit", "1"]
@@ -93,7 +94,7 @@ final class ExportArgumentsTests: XCTestCase {
     /// `KEPT_TEST_PYTHON` names the interpreter outright: CI points it at the
     /// app it just built. Named and missing is a failure, not a skip, so a
     /// broken bundle can't pass by being skipped.
-    private static func bundledPython() throws -> String {
+    static func bundledPython() throws -> String {
         if let named = ProcessInfo.processInfo.environment["KEPT_TEST_PYTHON"], !named.isEmpty {
             guard FileManager.default.isExecutableFile(atPath: named) else {
                 throw NamedPythonMissing(path: named)

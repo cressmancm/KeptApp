@@ -133,6 +133,9 @@ cp "$APP_DIR/.build/$CONFIG/Kept" "$BUNDLE/Contents/MacOS/Kept"
 cp "$APP_DIR/Info.plist" "$BUNDLE/Contents/Info.plist"
 cp "$APP_DIR/.build/Kept.icns" "$BUNDLE/Contents/Resources/Kept.icns"
 ditto "$APP_DIR/.build/python-env" "$BUNDLE/Contents/Resources/python"
+# Kept's launcher for osxphotos: the export never follows a link in the
+# backup folder. Sealed into the bundle with everything else.
+cp "$APP_DIR/Python/kept_export.py" "$BUNDLE/Contents/Resources/kept_export.py"
 # Python, osxphotos and their dependencies ask for their notices to travel
 # with any copy that is distributed.
 cp "$APP_DIR/LICENSES.txt" "$BUNDLE/Contents/Resources/LICENSES.txt"
@@ -276,7 +279,8 @@ echo "==> Smoke test: bundled osxphotos under the hardened runtime"
 # osxphotos prints four lines, head exits after one, and osxphotos then got
 # SIGPIPE writing the rest, which pipefail reported as a failed build. Only
 # sometimes, depending on timing; CI hit it on 2026-10-10.
-SMOKE="$("$BUNDLE/Contents/Resources/python/bin/python3" -I -B -m osxphotos --version)"
+SMOKE="$("$BUNDLE/Contents/Resources/python/bin/python3" -I -B \
+    "$BUNDLE/Contents/Resources/kept_export.py" "$BUNDLE" --version)"
 echo "${SMOKE%%$'\n'*}"
 # The smoke test runs the signed interpreter, so it is also the check that
 # running it leaves the seal intact.

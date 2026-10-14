@@ -48,7 +48,15 @@ enum Config {
         return nil
     }
 
-    /// The bundled interpreter; osxphotos runs as `python3 -m osxphotos`.
+    /// Kept's launcher for osxphotos, which keeps the export from following
+    /// a link in the backup folder (Python/kept_export.py).
+    static var exportGuard: URL? {
+        guard let resources = Bundle.main.resourceURL else { return nil }
+        let script = resources.appending(path: "kept_export.py")
+        return FileManager.default.fileExists(atPath: script.path) ? script : nil
+    }
+
+    /// The bundled interpreter; osxphotos runs through `exportGuard`.
     static var bundledPython: URL? {
         guard let resources = Bundle.main.resourceURL else { return nil }
         let python = resources.appending(path: "python/bin/python3")
