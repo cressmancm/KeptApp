@@ -35,7 +35,7 @@ final class ExportGuardTests: XCTestCase {
     private func python(_ body: String) async throws -> String {
         let python = try ExportArgumentsTests.bundledPython()
         let script = """
-            import importlib.util, os, sys, threading
+            import importlib.util, os, sys, threading, time
             spec = importlib.util.spec_from_file_location("kept_export", sys.argv[1])
             guard = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(guard)
@@ -150,13 +150,18 @@ final class ExportGuardTests: XCTestCase {
                 with guard._Ours():
                     while not done.is_set():
                         os.symlink(outside, year)
+                        time.sleep(0.0002)
                         os.unlink(year)
                         os.rename(real, year)
+                        time.sleep(0.0002)
                         os.rename(year, real)
             swapper = threading.Thread(target=swap)
             swapper.start()
-            copied = refused = 0
-            for n in range(400):
+            # Until both have happened plenty, so the race was really run:
+            # how the two threads interleave differs from run to run.
+            copied = refused = n = 0
+            while (copied < 50 or refused < 50) and n < 50000:
+                n += 1
                 try:
                     FileUtil.copy(src, os.path.join(year, "10", f"IMG_{n}.jpg"))
                     copied += 1
@@ -167,6 +172,8 @@ final class ExportGuardTests: XCTestCase {
             print("copied", copied, "refused", refused)
             """)
         XCTAssertTrue(output.contains("copied"), output)
+        XCTAssertFalse(output.contains("copied 0 "), output)
+        XCTAssertFalse(output.hasSuffix("refused 0\n"), output)
         let landed = try fm.contentsOfDirectory(atPath: scratch.appending(path: "Documents/10").path)
         XCTAssertEqual(landed, [], output)
         let kept = try fm.contentsOfDirectory(atPath: scratch.appending(path: "real-2026/10").path)
