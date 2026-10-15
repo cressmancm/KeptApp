@@ -261,24 +261,4 @@ final class UninstallTests: XCTestCase {
         XCTAssertEqual(outcome.failed.map(\.label), ["Logs"])
         XCTAssertEqual(outcome.failed.first?.reason, Uninstall.leftForBackup)
     }
-
-    // MARK: - No backup during removal (production review S8)
-
-    /// Removing Kept takes the backup lock once confirmed, so another copy of
-    /// Kept can't start a backup into the state being deleted, and refuses
-    /// when a backup already holds it.
-    func testRemovalTakesTheBackupLock() throws {
-        let fm = FileManager.default
-        let lock = fm.temporaryDirectory.appending(path: "KeptLock-\(UUID().uuidString)")
-        defer { try? fm.removeItem(at: lock) }
-
-        XCTAssertTrue(BackupEngine.claimLock(at: lock))
-        XCTAssertEqual(BackupEngine.livePidHoldingLock(at: lock), getpid())
-        // Held now, as by a running backup.
-        XCTAssertFalse(BackupEngine.claimLock(at: lock))
-
-        // A crash's lock, naming a process that's gone, doesn't count.
-        try "99999999\n".write(to: lock, atomically: true, encoding: .utf8)
-        XCTAssertTrue(BackupEngine.claimLock(at: lock))
-    }
 }

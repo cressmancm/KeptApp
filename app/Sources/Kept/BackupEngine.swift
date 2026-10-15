@@ -216,18 +216,30 @@ actor BackupEngine {
             runLog.close()
         }
 
-        // --- single-instance lock, same .backup.pid file as the script ---
-        if let otherPid = Self.livePidHoldingLock() {
-            runLog.log("Backup already running (pid \(otherPid)); exiting.")
+        // One backup at a time, across every copy of Kept (BackupLock).
+        let lock: BackupLock
+        switch BackupLock.acquire() {
+        case .acquired(let acquired):
+            lock = acquired
+        case .held(let otherPid):
+            let who = otherPid.map { $0 > 0 ? " (pid \($0))" : "" } ?? ""
+            runLog.log("Backup already running\(who); exiting.")
             record.end = .now
             record.outcome = .skipped
-            record.message = "Another backup is already running (pid \(otherPid))"
+            record.message = "Another backup is already running\(who)"
             Self.save(record, runLog)
             return record
+        case .failed(let reason):
+            runLog.log("FAILED: \(reason)")
+            record.end = .now
+            record.outcome = .failed
+            record.message = "Kept couldn't make sure no other backup is running. Try again."
+            record.failureKind = .setupFailed
+            Self.save(record, runLog)
+            await Self.notify(record, destination: destination)
+            return record
         }
-        try? "\(ProcessInfo.processInfo.processIdentifier)\n"
-            .write(to: Config.lockFileURL, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: Config.lockFileURL) }
+        defer { lock.release() }
 
         // Recorded now, with no outcome yet, so the attempt survives the
         // process dying. Everything after this point either updates it in place
@@ -356,35 +368,10 @@ actor BackupEngine {
 
     // MARK: - Lock
 
-    /// Returns the pid in the lock file if that process is still alive and
-    /// is a copy of Kept.
-    ///
-    /// Alive alone isn't enough. A lock left behind by a crash names a pid the
-    /// system will hand out again, and whatever unrelated process gets it would
-    /// otherwise turn every backup into "Another backup is already running"
-    /// until it happened to exit. Matched by executable name rather than full
-    /// path, so a development build still sees an installed copy's backup.
+    /// The pid of a backup holding the lock, from any copy of Kept, or nil
+    /// when none does. See BackupLock.
     static func livePidHoldingLock(at lock: URL = Config.lockFileURL) -> Int32? {
-        guard let contents = try? String(contentsOf: lock, encoding: .utf8),
-              let pid = Int32(contents.trimmingCharacters(in: .whitespacesAndNewlines)),
-              kill(pid, 0) == 0,
-              isKept(pid: pid)
-        else { return nil }
-        return pid
-    }
-
-    /// Takes the backup lock for something that mustn't overlap a backup,
-    /// from this copy of Kept or another: removing Kept. False when a backup
-    /// holds it, or it can't be written.
-    static func claimLock(at lock: URL = Config.lockFileURL) -> Bool {
-        guard livePidHoldingLock(at: lock) == nil else { return false }
-        do {
-            try "\(ProcessInfo.processInfo.processIdentifier)\n"
-                .write(to: lock, atomically: true, encoding: .utf8)
-        } catch {
-            return false
-        }
-        return true
+        BackupLock.holder(at: lock)
     }
 
     static func isKept(

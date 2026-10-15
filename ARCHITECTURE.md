@@ -61,7 +61,7 @@ flowchart TD
 
 | Where | What |
 |---|---|
-| `~/Library/Application Support/Kept/` | `export.db` (the backup index; lose it and the next backup copies everything again), `runs.json` (history, each run naming its folder), `report.csv`, `.backup.pid` (the lock) |
+| `~/Library/Application Support/Kept/` | `export.db` (the backup index; lose it and the next backup copies everything again), `runs.json` (history, each run naming its folder), `report.csv`, `.backup.pid` (the lock: an exclusive `flock` held for the whole backup or removal, `BackupLock`) |
 | `~/Library/Logs/Kept/` | One log per backup, stall samples, `access-test.log` |
 | Preferences, `com.chipcressman.Kept` | Settings, the sealed backup folder, setup state |
 | Keychain, `com.chipcressman.Kept.settings-seal` | The seal key: the data-protection keychain with a provisioning profile, the login keychain without |

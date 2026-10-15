@@ -10,6 +10,10 @@ import Foundation
 /// know how to remove itself. What it removes is in Uninstall.
 @MainActor
 enum UninstallFlow {
+    /// The backup lock, once a removal is confirmed. Never let go: Kept
+    /// quits when the removal is done.
+    private static var removalLock: BackupLock?
+
     /// Returns without changing anything if a backup is running or the user
     /// cancels. Otherwise removes Kept, and quits. The caller stops starting
     /// backups before calling this, and starts them again if it returns.
@@ -45,10 +49,12 @@ enum UninstallFlow {
         // This copy of Kept starts nothing while the dialogs are up, but
         // another copy could have started a backup meanwhile. Checked again
         // now, and the lock taken, so none starts during the removal either.
-        guard BackupEngine.claimLock() else {
+        guard case .acquired(let lock) = BackupLock.acquire() else {
             backupRunningAlert().runModal()
             return
         }
+        // Held until Kept quits, after the removal.
+        Self.removalLock = lock
         // The Settings window saves its frame into the defaults domain when it
         // closes, and it used to close after the domain was deleted, which
         // brought the domain back with that one key. Closed first now.
