@@ -145,6 +145,19 @@ final class SchedulerStateTests: XCTestCase {
         XCTAssertTrue(BackupController.mayStart(.manual, cadence: .manual))
     }
 
+    /// Production review C4, 2026-10-13: a folder chosen in setup, the window
+    /// closed, and the timer or a wake started a backup before Full Disk
+    /// Access and notifications were set up. Back Up Now still works.
+    func testNothingStartsOnItsOwnBeforeSetupIsDone() {
+        for trigger in [BackupTrigger.scheduled, .catchUp, .retry] {
+            XCTAssertFalse(
+                BackupController.mayStart(trigger, cadence: .nightly, setupDone: false), "\(trigger)")
+            XCTAssertTrue(
+                BackupController.mayStart(trigger, cadence: .nightly, setupDone: true), "\(trigger)")
+        }
+        XCTAssertTrue(BackupController.mayStart(.manual, cadence: .nightly, setupDone: false))
+    }
+
     /// On battery, then Manually: plugging in used to start the night that
     /// was held back. Now it stops waiting.
     func testChoosingManuallyStopsWaitingForPower() {

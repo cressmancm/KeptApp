@@ -379,7 +379,7 @@ final class BackupController {
         // an invisible one.
         clearPreview()
         guard !isUninstalling, !isRunning, let destination,
-            Self.mayStart(trigger, cadence: cadence)
+            Self.mayStart(trigger, cadence: cadence, setupDone: hasCompletedOnboarding)
         else { return }
 
         // Never start an unattended run on battery. It cannot succeed: the
@@ -425,8 +425,14 @@ final class BackupController {
     /// a retry, a catch-up or a deferred night still pending from before the
     /// switch is dropped here, whatever armed it (production review W6,
     /// 2026-10-13).
-    nonisolated static func mayStart(_ trigger: BackupTrigger, cadence: BackupCadence) -> Bool {
-        trigger == .manual || cadence != .manual
+    ///
+    /// Nothing starts on its own before setup is finished either. A folder
+    /// chosen in setup, and the window closed, used to let the 2 AM backup
+    /// run before Full Disk Access and notifications were set up (C4).
+    nonisolated static func mayStart(
+        _ trigger: BackupTrigger, cadence: BackupCadence, setupDone: Bool = true
+    ) -> Bool {
+        trigger == .manual || (setupDone && cadence != .manual)
     }
 
     /// Switching to Manually cancels what was waiting to start on its own:
