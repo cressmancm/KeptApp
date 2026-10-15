@@ -17,9 +17,14 @@ Releases are notarized Developer ID builds, published as GitHub releases. Only t
 1. **Bump the version** in `app/Info.plist`: `CFBundleShortVersionString` (`1.2`) and `CFBundleVersion` (one more than last time). Edit the two values by hand. `PlistBuddy -c Set` rewrites the whole file and drops its comments.
 2. **Point the README** at the new zip: the Download section names `Kept-<version>.zip`.
 3. **Commit** as `Kept <version>`, push, and wait for both CI jobs to pass.
-4. **Build:** `cd app && ./release.sh`. It checks the certificate and the notary profile first, then builds with the secure timestamp and without the review tools, checks the app's Python packages against the lock, submits for notarization (usually a few minutes), staples the ticket, and runs a Gatekeeper check. The first time, codesign asks for the Developer ID key; choose Always Allow, or it asks for each of ~200 files. You get `app/dist/Kept-<version>.zip` and its SHA-256. If notarization is rejected, the script prints Apple's log, which names every file and why.
+4. **Build:** `cd app && ./release.sh`. It checks the certificate and the notary profile first, then builds with the secure timestamp and without the review tools, checks the app's Python packages against the lock, submits for notarization (usually a few minutes), staples the ticket, and runs a Gatekeeper check. Then it unzips the zip as a download would be, and checks the signature and Gatekeeper on that copy too: a zip that unpacks broken fails here, not for the people who download it. The first time, codesign asks for the Developer ID key; choose Always Allow, or it asks for each of ~200 files. You get `app/dist/Kept-<version>.zip` and its SHA-256. If notarization is rejected, the script prints Apple's log, which names every file and why.
 5. **Install it yourself** from the zip: quit Kept, replace `/Applications/Kept.app`, open it, check the version in Settings → Advanced, and run Test Library Access.
-6. **Tag** the commit it was built from, and push the tag:
+6. **Try it as a new user would**, in a macOS account that has never run Kept: System Settings → Users & Groups → Add User. Your own account already has Kept's settings, its keychain item and its Full Disk Access, so it can't show what a first install is like.
+   - AirDrop the zip to that account, so it arrives quarantined, as a download does.
+   - Open it, move Kept to Applications when asked, and go through setup: Full Disk Access, notifications, and a backup folder on an empty disk or a new folder.
+   - Back Up Now, and check that it finishes and the folder fills with dated folders.
+   - Delete the account afterwards. It holds a copy of the library's photos.
+7. **Tag** the commit it was built from, and push the tag:
 
    ```bash
    git tag -a v<version> <commit> -m "Kept <version>"
@@ -27,7 +32,7 @@ Releases are notarized Developer ID builds, published as GitHub releases. Only t
    ```
 
    The tag must be plain, `v1.2` or `v1.2.3`. Kept's update check only recognises that form. Anything else, such as `v1.2-beta`, is ignored.
-7. **Publish:**
+8. **Publish:**
 
    ```bash
    gh release create v<version> app/dist/Kept-<version>.zip --title "Kept <version>" --notes-file notes.md --latest
