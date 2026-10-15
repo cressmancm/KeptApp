@@ -142,17 +142,49 @@ enum NoFollow {
     /// Moves `name` from one open folder to another, as `newName`, refusing to
     /// replace anything already there. Never follows a link: a link being
     /// moved is moved as itself.
+    ///
+    /// Some SMB servers can't rename without replacing (ENOTSUP), and can't
+    /// make hard links either: the NAS this was written against is one, so
+    /// it takes the fallback for every photo set aside. Checking that the
+    /// name was free and then renaming let a file that arrived in between be
+    /// overwritten (production review W8, 2026-10-13). Refusing outright
+    /// would stop every backup there. So the name is reserved first, with an
+    /// exclusive create the server does in one step, and the move then
+    /// replaces only that placeholder, once it's checked to still be the one
+    /// made.
     static func moveExclusive(
-        _ name: String, from source: Int32, to destination: Int32, as newName: String
+        _ name: String, from source: Int32, to destination: Int32, as newName: String,
+        exclusiveRename: (Int32, String, Int32, String) -> Int32 = { from, name, to, newName in
+            renameatx_np(from, name, to, newName, UInt32(RENAME_EXCL)) == 0 ? 0 : errno
+        }
     ) -> Int32 {
-        if renameatx_np(source, name, destination, newName, UInt32(RENAME_EXCL)) == 0 { return 0 }
-        let code = errno
-        // A filesystem without exclusive rename (some SMB servers). The check
-        // and the rename both happen inside folders already held open, so
-        // nothing outside them can be reached either way.
+        let code = exclusiveRename(source, name, destination, newName)
         guard code == ENOTSUP || code == EINVAL else { return code }
-        guard kind(of: newName, in: destination) == .missing else { return EEXIST }
-        return renameat(source, name, destination, newName) == 0 ? 0 : errno
+
+        let placeholder = openat(
+            destination, newName, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard placeholder >= 0 else { return errno }
+        var made = stat()
+        let identified = fstat(placeholder, &made) == 0
+        close(placeholder)
+        var now = stat()
+        guard identified, fstatat(destination, newName, &now, AT_SYMLINK_NOFOLLOW) == 0,
+            now.st_ino == made.st_ino, now.st_dev == made.st_dev, now.st_size == 0
+        else {
+            // Replaced since it was made: whatever is there now isn't Kept's.
+            return EEXIST
+        }
+        guard renameat(source, name, destination, newName) == 0 else {
+            let failed = errno
+            // The placeholder, only if it's still Kept's.
+            if fstatat(destination, newName, &now, AT_SYMLINK_NOFOLLOW) == 0,
+                now.st_ino == made.st_ino, now.st_dev == made.st_dev
+            {
+                unlinkat(destination, newName, 0)
+            }
+            return failed
+        }
+        return 0
     }
 
     /// Deletes `name` from an open folder: a file or link as itself, a folder
