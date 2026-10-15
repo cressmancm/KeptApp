@@ -21,10 +21,17 @@ IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:--}"
 
 # Kept's launcher for osxphotos, every build: it's Kept's own code, not the
 # Python the stamp below covers.
+mkdir -p "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources"
 cp "$APP_DIR/Python/kept_export.py" "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources/kept_export.py"
 
 STAMP="$DEST/.kept-embedded"
-KEY="$(stat -f %m "$ENV_DIR/bin/python3") $IDENTITY $CONFIGURATION"
+# What the env was built from (bundle-python.sh's stamp: its own script and
+# the package lock), not only the interpreter's date. The interpreter comes
+# out of its archive with the same date every time, so a lock that moved a
+# package forward rebuilt the env and left the old packages embedded here
+# (production review W4).
+INPUTS="$(cat "$APP_DIR/.build/python-env.inputs" 2>/dev/null || echo none)"
+KEY="$(stat -f %m "$ENV_DIR/bin/python3") $INPUTS $IDENTITY $CONFIGURATION"
 if [[ -f "$STAMP" && "$(cat "$STAMP")" == "$KEY" ]]; then
     echo "Bundled Python is already embedded and signed."
     exit 0
