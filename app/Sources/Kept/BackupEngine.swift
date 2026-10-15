@@ -267,15 +267,13 @@ actor BackupEngine {
                 onLogTail: onLogTail)
 
             record.end = .now
-            record.outcome = .success
-            record.exported = progress.exported
-            record.updated = progress.updated
-            record.skipped = progress.skipped
-            record.errors = progress.errors
-            record.deleted = progress.deleted
+            record.finish(with: progress)
             // osxphotos exits 0 whatever it left behind, so the summary line
             // is what says whether this backup is complete.
-            if record.isPartial {
+            if record.unconfirmed == true {
+                runLog.log(
+                    "=== Kept backup finished, unconfirmed: osxphotos printed no error count ===")
+            } else if record.isPartial {
                 runLog.log(
                     "=== Kept backup finished, incomplete: \(progress.errors ?? 0) errors ===")
             } else {

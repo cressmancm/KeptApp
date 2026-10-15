@@ -44,6 +44,10 @@ struct RunRecord: Codable, Identifiable, Sendable {
     var updated: Int?
     var skipped: Int?
     var errors: Int?
+    /// osxphotos ended cleanly but its summary, with the error count, never
+    /// came: nothing says every file was copied (production review W3).
+    /// nil in records from before Kept kept it.
+    var unconfirmed: Bool?
     var deleted: Int?
     var logPath: String?
     /// Items osxphotos processed at export time. Optional so records written
@@ -74,8 +78,24 @@ struct RunRecord: Codable, Identifiable, Sendable {
     /// schedule and the daily check, and the next backup tries the failed
     /// files again anyway. What it must never do is look like a complete
     /// backup: osxphotos exits 0 either way.
+    ///
+    /// So is a backup whose summary never came: with no error count, nothing
+    /// says it's complete, and it used to be taken as zero errors.
     var isPartial: Bool {
-        outcome == .success && (errors ?? 0) > 0
+        outcome == .success && ((errors ?? 0) > 0 || unconfirmed == true)
+    }
+
+    /// A backup that ran to the end, with what osxphotos reported.
+    mutating func finish(with progress: ExportProgress) {
+        outcome = .success
+        exported = progress.exported
+        updated = progress.updated
+        skipped = progress.skipped
+        errors = progress.errors
+        // The error count is in osxphotos' last summary line. Without it,
+        // missing or garbled, the run can't be called complete.
+        unconfirmed = progress.errors == nil ? true : nil
+        deleted = progress.deleted
     }
 
     /// Whether this run belongs to `destination`'s history.

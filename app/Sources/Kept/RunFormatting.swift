@@ -270,15 +270,27 @@ enum RunFormatting {
     /// files; nil for any other.
     static func notCopied(_ record: RunRecord) -> String? {
         guard record.isPartial else { return nil }
-        return "\((record.errors ?? 0).formatted()) not copied"
+        guard let errors = record.errors, errors > 0 else { return "Not confirmed" }
+        return "\(errors.formatted()) not copied"
     }
 
     /// What the panel says under "Some photos aren't backed up". Markdown:
     /// only copy written here, never engine text.
     static func partialDetails(_ record: RunRecord) -> [String] {
-        guard record.isPartial, let errors = record.errors else { return [] }
+        guard record.isPartial else { return [] }
+        guard let errors = record.errors, errors > 0 else { return [unconfirmedSentence] }
         return [errorsSentence(errors)]
     }
+
+    /// The panel's title for a backup that isn't complete: one that couldn't
+    /// copy some files, or one that didn't say.
+    static func partialTitle(_ record: RunRecord) -> String {
+        (record.errors ?? 0) > 0 ? "Some photos aren't backed up" : "Some photos may not be backed up"
+    }
+
+    /// A backup that ended without saying how many files failed.
+    static let unconfirmedSentence =
+        "Kept couldn't confirm that every photo was copied. The next backup copies anything that's missing."
 
     /// Files osxphotos tried and failed to copy. They aren't in the backup
     /// index, so the next backup tries them again.

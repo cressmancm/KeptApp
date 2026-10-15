@@ -97,7 +97,7 @@ private struct HealthyPanel: View {
                     // thousands of photos that weren't.
                     StatusRow(
                         symbol: "exclamationmark.triangle.fill", tint: .orange,
-                        title: "Some photos aren't backed up",
+                        title: RunFormatting.partialTitle(last),
                         subtitle: RunFormatting.healthySubtitle(last, now: now))
                     InfoCard(spacing: 6) {
                         ForEach(RunFormatting.partialDetails(last), id: \.self) { detail in
