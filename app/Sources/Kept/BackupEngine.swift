@@ -160,7 +160,13 @@ actor BackupEngine {
     }
 
     private var python: URL? { pythonOverride ?? Config.bundledPython }
-    private var exportGuard: URL? { exportGuardOverride ?? Config.exportGuard }
+    /// nil when it isn't there: osxphotos never runs without it.
+    private var exportGuard: URL? {
+        guard let script = exportGuardOverride ?? Config.exportGuard,
+            FileManager.default.fileExists(atPath: script.path)
+        else { return nil }
+        return script
+    }
 
     /// The export's exit status when it refused a link in the backup folder
     /// (LINK_REFUSED in kept_export.py).

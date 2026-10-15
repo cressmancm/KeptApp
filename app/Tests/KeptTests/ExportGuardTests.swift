@@ -228,8 +228,11 @@ final class ExportGuardTests: XCTestCase {
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: python.path)
         let folder = scratch.appending(path: "Backup")
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
-        // Not in an app bundle, so Config has no launcher to fall back to.
-        let engine = BackupEngine(python: python, workingDirectory: scratch)
+        // Named and missing. Not left to Config: hosted in Kept.app (CI's
+        // Xcode job), the bundle has one.
+        let engine = BackupEngine(
+            python: python, exportGuard: scratch.appending(path: "kept_export.py"),
+            workingDirectory: scratch)
         nonisolated(unsafe) let log = try RunLog(in: scratch.appending(path: "logs"))
         do {
             _ = try await engine.runExport(
