@@ -5,20 +5,31 @@ import SwiftUI
 struct SettingsView: View {
     let controller: BackupController
 
+    enum Tab: Hashable { case general, schedule, advanced }
+
+    /// Settings opens on General every time, not on whichever tab was open
+    /// last: the same window each time is easier to find your way around.
+    /// Set back when the window closes, since SwiftUI keeps the view, and its
+    /// state, between openings.
+    @State private var tab: Tab = .general
+
     var body: some View {
-        TabView {
+        TabView(selection: $tab) {
             GeneralSettings(controller: controller)
                 .tabItem { Label("General", systemImage: "gearshape") }
+                .tag(Tab.general)
             ScheduleSettings(controller: controller)
                 .tabItem { Label("Schedule", systemImage: "clock") }
+                .tag(Tab.schedule)
             AdvancedSettings(controller: controller)
                 .tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }
+                .tag(Tab.advanced)
         }
+        .background(ClearInitialFocus(onClose: { tab = .general }))
         // 560 rather than 520: the 130pt right-aligned label column and its
         // 14pt gutter take that much off every control column, and the General
         // tab's staleness row was the one that ran out of room first.
         .frame(width: 560)
-        .background(ClearInitialFocus())
     }
 }
 
@@ -30,17 +41,45 @@ struct SettingsView: View {
 /// selection stuck on General, whichever tab is open. Clearing the first
 /// responder leaves focus unset until the user presses Tab, which is how most
 /// Mac settings windows open.
+///
+/// Also calls `onClose` as its window opens and closes, so Settings starts
+/// on General each time.
 private struct ClearInitialFocus: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { FocusClearingView() }
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    let onClose: () -> Void
+
+    func makeNSView(context: Context) -> NSView { FocusClearingView(onClose: onClose) }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? FocusClearingView)?.onClose = onClose
+    }
 
     final class FocusClearingView: NSView {
+        var onClose: () -> Void
+        private var observer: NSObjectProtocol?
+
+        init(onClose: @escaping () -> Void) {
+            self.onClose = onClose
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) { fatalError("not used") }
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            observer = nil
             guard let window else { return }
             // Deferred: AppKit picks the initial first responder as the window
             // is ordered front, which happens after this view is installed.
-            Task { @MainActor in window.makeFirstResponder(nil) }
+            Task { @MainActor [onClose] in
+                window.makeFirstResponder(nil)
+                // And on opening, in case macOS put back the tab it last saw.
+                onClose()
+            }
+            observer = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.onClose() }
+            }
         }
     }
 }
