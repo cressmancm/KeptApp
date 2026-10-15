@@ -69,12 +69,13 @@ jobs:
         run: KEPT_SIGN_IDENTITY=- app/build.sh --no-install
 
       - name: Test the built app
-        # osxphotos inside it, run with Kept's real arguments, and the check
-        # before every backup that the app's files match its signature.
+        # osxphotos inside it, run with Kept's real arguments and through
+        # Kept's launcher, which refuses links in the backup folder; and the
+        # check before every backup that the app's files match its signature.
         env:
           KEPT_TEST_APP: ${{ github.workspace }}/app/.build/Kept.app
           KEPT_TEST_PYTHON: ${{ github.workspace }}/app/.build/Kept.app/Contents/Resources/python/bin/python3
-        run: swift test --package-path app --filter 'ExportArgumentsTests|AppSealTests'
+        run: swift test --package-path app --filter 'ExportArgumentsTests|AppSealTests|ExportGuardTests'
 
   xcode:
     runs-on: macos-26

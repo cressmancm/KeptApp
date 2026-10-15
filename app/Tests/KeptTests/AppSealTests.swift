@@ -76,7 +76,10 @@ final class AppSealTests: XCTestCase {
     }
 
     func testNoRequirementMeansNotIntact() throws {
-        XCTAssertEqual(AppSeal.isIntact(try builtApp(), signedLike: nil), false)
+        // Outside the assertion, as in testABuiltAppIsIntact: a skip thrown
+        // inside one is reported as a failure (CI, 2026-10-14).
+        let app = try builtApp()
+        XCTAssertEqual(AppSeal.isIntact(app, signedLike: nil), false)
     }
 
     /// One edited line of bundled Python is enough to refuse the copy.
