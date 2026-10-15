@@ -103,11 +103,17 @@ extension Destination {
     /// folder again only refreshes what Kept knows about its disk, so it
     /// keeps its identity and its backups; any other folder is new and starts
     /// with none.
+    ///
+    /// The same folder means the same path on the same disk or share. The
+    /// path alone used to be enough, so an empty disk plugged in under the
+    /// old one's name, or another server's share mounted at the same path,
+    /// carried over the old backups and looked backed up (production review
+    /// W5, 2026-10-13).
     static func adopting(_ picked: Destination, replacing current: Destination?, now: Date = .now)
         -> Destination
     {
         var adopted = picked
-        if let current, current.path == picked.path {
+        if let current, picked.isSameFolder(as: current) {
             adopted.id = current.id
             adopted.chosenAt = current.chosenAt
         } else {
@@ -179,6 +185,24 @@ extension Destination {
     var shareAddress: String? {
         guard let serverName, let smbURL else { return nil }
         return "smb://" + serverName + (URLComponents(string: smbURL)?.path ?? "")
+    }
+
+    /// Whether `self`, just picked, is the folder `current` names: the same
+    /// path, on the same kind of volume, and that same volume as far as Kept
+    /// can tell. A disk now known by a UUID must match the one recorded; a
+    /// folder chosen before Kept recorded one counts as new, since nothing
+    /// shows it's the same disk. On a share, the server and share must match
+    /// (`isSameShare`).
+    func isSameFolder(as current: Destination) -> Bool {
+        guard path == current.path, isNetwork == current.isNetwork else { return false }
+        if isNetwork {
+            guard let smbURL else { return current.smbURL == nil }  // AFP or NFS
+            guard let recorded = current.smbURL else { return false }
+            return Self.isSameShare(smbURL, recorded)
+        }
+        if let volumeUUID, volumeUUID != current.volumeUUID { return false }
+        if let folderID, let recorded = current.folderID, folderID != recorded { return false }
+        return true
     }
 
     /// Same server and share, however the server was named when mounted.

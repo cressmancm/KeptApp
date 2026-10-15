@@ -151,6 +151,49 @@ final class LaunchReviewTests: XCTestCase {
         XCTAssertNil(Destination.adopting(legacy, replacing: legacy).id)
     }
 
+    // MARK: - W5: the same path on another disk is another folder
+
+    /// Production review W5, 2026-10-13: choosing a folder at the same path
+    /// kept its backups even on another disk or share, so a new, empty
+    /// folder looked backed up.
+    func testTheSamePathOnAnotherDiskStartsWithNoBackups() {
+        func local(_ uuid: String?, folder: UInt64? = 7) -> Destination {
+            Destination(
+                path: "/Volumes/Backup", isNetwork: false, volumeUUID: uuid, id: UUID(),
+                chosenAt: start, folderID: folder)
+        }
+        let current = local("DISK-A")
+        XCTAssertEqual(Destination.adopting(local("DISK-A"), replacing: current).id, current.id)
+        XCTAssertNotEqual(Destination.adopting(local("DISK-B"), replacing: current).id, current.id)
+        // Same disk, but another folder made at that path since.
+        XCTAssertNotEqual(
+            Destination.adopting(local("DISK-A", folder: 8), replacing: current).id, current.id)
+        // Chosen before Kept recorded the disk: nothing shows it's the same one.
+        XCTAssertNotEqual(Destination.adopting(local("DISK-A"), replacing: local(nil)).id, current.id)
+        // A disk without a UUID can only be told by its path.
+        let plain = local(nil, folder: nil)
+        XCTAssertEqual(Destination.adopting(local(nil, folder: nil), replacing: plain).id, plain.id)
+    }
+
+    func testTheSamePathOnAnotherShareStartsWithNoBackups() {
+        func share(_ url: String?) -> Destination {
+            Destination(
+                path: "/Volumes/PhotoBackup", isNetwork: true, smbURL: url,
+                mountPoint: "/Volumes/PhotoBackup", id: UUID(), chosenAt: start)
+        }
+        let current = share("smb://me@nas._smb._tcp.local/PhotoBackup")
+        // However the server was named when it was mounted.
+        XCTAssertEqual(
+            Destination.adopting(share("smb://nas.local/PhotoBackup"), replacing: current).id,
+            current.id)
+        XCTAssertNotEqual(
+            Destination.adopting(share("smb://other.local/PhotoBackup"), replacing: current).id,
+            current.id)
+        // A local disk mounted where the share was.
+        let disk = Destination(path: "/Volumes/PhotoBackup", isNetwork: false, volumeUUID: "X")
+        XCTAssertNotEqual(Destination.adopting(disk, replacing: current).id, current.id)
+    }
+
     func testTrimmingKeepsEachFoldersLatestSuccess() throws {
         let url = root.appending(path: "runs.json")
         let old = UUID()

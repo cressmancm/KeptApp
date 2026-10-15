@@ -36,9 +36,12 @@ enum DestinationPicker {
             return nil
         }
 
-        // By path: choosing the current folder again only refreshes what Kept
-        // knows about its disk, and isn't a new folder to warn about.
-        if picked.path != current?.path, !Destination.isEffectivelyEmpty(entries: entries) {
+        // Choosing the current folder again only refreshes what Kept knows
+        // about its disk, and isn't a new folder to warn about. The same path
+        // on another disk or share is (production review W5): its files
+        // would be moved to Removed from Photos.
+        let isCurrent = current.map { picked.isSameFolder(as: $0) } ?? false
+        if !isCurrent, !Destination.isEffectivelyEmpty(entries: entries) {
             let answer = nonEmptyFolderAlert(for: picked, retentionDays: retentionDays).runModal()
             guard answer == .alertSecondButtonReturn else { return nil }
         }
