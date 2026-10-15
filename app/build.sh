@@ -82,18 +82,37 @@ cd "$APP_DIR"
 # dies on its next write to the closed pipe. The run is lost partway through and
 # leaves no record in runs.json, because a record is only appended when a run
 # finishes. Checked before the build so this fails in a second, not after two
-# minutes of signing.
-if [[ $INSTALL -eq 1 && $FORCE -eq 0 && -f "$LOCK_FILE" ]]; then
-    LOCK_PID="$(cat "$LOCK_FILE" 2>/dev/null || true)"
-    # The pid must still be Kept: a lock left by a crash names a pid that an
-    # unrelated process may since have been given.
-    LOCK_COMM="$(ps -p "$LOCK_PID" -o comm= 2>/dev/null || true)"
-    if [[ -n "$LOCK_PID" && "${LOCK_COMM:t}" == "Kept" ]]; then
-        echo "!!  A backup is running right now (pid $LOCK_PID)."
+# minutes of signing, and again just before Kept is quit: a backup can start
+# during the build (production review W7).
+backup_running() {
+    [[ -f "$LOCK_FILE" ]] || return 1
+    # A backup holds an exclusive flock on the file (BackupLock). lockf exits
+    # 75 when it can't take it at once; -k keeps the file and -n never makes
+    # one, so a backup starting meanwhile locks the same file.
+    local held=0
+    lockf -k -n -s -t 0 "$LOCK_FILE" true || held=$?
+    [[ $held -eq 75 ]] && return 0
+    # Kept 1.3 and earlier wrote only the pid. It must still be Kept: a lock
+    # left by a crash names a pid an unrelated process may since have been
+    # given.
+    local pid comm
+    pid="$(cat "$LOCK_FILE" 2>/dev/null || true)"
+    [[ -n "$pid" ]] || return 1
+    comm="$(ps -p "$pid" -o comm= 2>/dev/null || true)"
+    [[ "${comm:t}" == "Kept" ]]
+}
+
+refuse_if_backing_up() {
+    if [[ $FORCE -eq 0 ]] && backup_running; then
+        echo "!!  A backup is running right now."
         echo "!!  Installing would quit Kept and kill it mid-export."
-        echo "!!  Wait for it to finish, or re-run with --force to install anyway."
+        echo "!!  Wait for it to finish, or re-run with --force to install anyway.$1"
         exit 1
     fi
+}
+
+if [[ $INSTALL -eq 1 ]]; then
+    refuse_if_backing_up ""
 fi
 
 # The review tools in Settings → Advanced (forced panel states, sample alerts
@@ -298,6 +317,8 @@ echo "==> Installing to $INSTALL_TO"
 # running the previous code from memory beside the new one, and would have run
 # that night's backup itself. So wait for them to go, and insist if they don't.
 KEPT_EXE="$INSTALL_TO/Contents/MacOS/Kept"
+refuse_if_backing_up "
+!!  The new build is at $BUNDLE; nothing was installed."
 osascript -e 'tell application "Kept" to quit' 2>/dev/null || true
 for _ in {1..10}; do
     pgrep -f "$KEPT_EXE" >/dev/null 2>&1 || break
