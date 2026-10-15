@@ -69,7 +69,7 @@ final class SecurityTests: XCTestCase {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let unsafe = [
             "/", "/Users", "/System", "/Library", "/Applications", "/usr", "/etc", "/var",
-            "/Volumes",
+            "/Volumes", "/Users/Shared",
             home,
             "\(home)/Documents", "\(home)/Desktop", "\(home)/Downloads", "\(home)/Pictures",
             "\(home)/Library",

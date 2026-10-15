@@ -284,6 +284,10 @@ extension Destination {
             "bin", "sbin", "usr", "etc", "var", "tmp", "private", "cores", "opt",
             // What /etc, /var and /tmp are links to.
             "private/etc", "private/var", "private/tmp",
+            // Every account's shared folder. Chosen itself, everything the
+            // other accounts keep there would be set aside and later deleted
+            // (production review C3). A folder inside it is fine.
+            "Users/Shared",
         ]
         if systemRoots.contains(standardized) { return true }
 
