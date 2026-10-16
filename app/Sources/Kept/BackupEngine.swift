@@ -26,6 +26,9 @@ struct BackupError: Error, CustomStringConvertible {
 ///      backup so a different or empty one can't retire it (PhotosLibrary)
 ///   8. osxphotos incremental mirror export, relaunched once on failure;
 ///      files it would delete are moved to "Removed from Photos" instead
+///   9. after an unattended backup, a spot-check of files already in the
+///      backup against their originals; damaged ones are copied again next
+///      time
 actor BackupEngine {
     /// How long the engine waits on things, in one place so tests can shrink
     /// it. The defaults are what a real backup uses.
@@ -272,8 +275,15 @@ actor BackupEngine {
                 destination, runLog, source: source, onProgress: onProgress,
                 onLogTail: onLogTail)
 
-            record.end = .now
             record.finish(with: progress)
+            // Unattended backups only: one started by hand is waited on.
+            if trigger != .manual, let library = source.library,
+                let check = await spotCheck(destination, runLog, library: library)
+            {
+                record.spotChecked = check.checked
+                record.damaged = check.damaged > 0 ? check.damaged : nil
+            }
+            record.end = .now
             // osxphotos exits 0 whatever it left behind, so the summary line
             // is what says whether this backup is complete.
             if record.unconfirmed == true {
@@ -281,7 +291,8 @@ actor BackupEngine {
                     "=== Kept backup finished, unconfirmed: osxphotos printed no error count ===")
             } else if record.isPartial {
                 runLog.log(
-                    "=== Kept backup finished, incomplete: \(progress.errors ?? 0) errors ===")
+                    "=== Kept backup finished, incomplete: \(progress.errors ?? 0) errors, "
+                        + "\(record.damaged ?? 0) damaged ===")
             } else {
                 runLog.log("=== Kept backup completed successfully ===")
             }
@@ -1008,6 +1019,71 @@ actor BackupEngine {
         return (status, parser.progress)
     }
 
+    // MARK: - Spot-check
+
+    /// What a spot-check found.
+    struct SpotCheck: Equatable, Sendable {
+        var checked: Int
+        var damaged: Int
+    }
+
+    /// After the export, still holding the lock: compares a few files
+    /// already in the backup with their originals in the library, byte for
+    /// byte (production review C2). A copy that's damaged, gone, or can't be
+    /// read is copied again by the next backup: the launcher clears its
+    /// signature in the backup index (spot_check in kept_export.py), where
+    /// the export, which writes the index back as it ends, can't undo it.
+    ///
+    /// Never fails the backup, which has already copied what it came for.
+    /// Anything that stops the check, Stop included, leaves it unrecorded.
+    func spotCheck(_ dest: Destination, _ runLog: RunLog, library: String) async -> SpotCheck? {
+        guard let python, let exportGuard else { return nil }
+        do {
+            try refuseWhileStuck(dest, runLog)
+            try await checkOwnFiles(runLog)
+        } catch let error as BackupError {
+            runLog.log("Skipped the spot-check: \(error.message)")
+            return nil
+        } catch {
+            return nil
+        }
+        guard !stop.isStopped else { return nil }
+        runLog.log("Spot-checking \(Config.spotCheckCount) files in the backup against the library...")
+        let result = await command(
+            python.path,
+            [
+                "-I", "-B", exportGuard.path, dest.path, "--spot-check", exportDatabase, library,
+                "\(Config.spotCheckCount)", "\(Int(Config.spotCheckBudgetSecs))",
+            ],
+            Config.spotCheckTimeoutSecs, stop)
+        result.stdout.enumerateLines { line, _ in runLog.log(line) }
+        if let child = result.stuck { remember(stuck: child) }
+        guard result.status == 0, !result.timedOut, let check = Self.parseSpotCheck(result.stdout)
+        else {
+            result.stderr.enumerateLines { line, _ in runLog.log(line) }
+            runLog.log(
+                stop.isStopped
+                    ? "Spot-check stopped."
+                    : "The spot-check didn't finish (status \(result.status)"
+                        + "\(result.timedOut ? ", timed out" : "")).")
+            return nil
+        }
+        return check
+    }
+
+    /// The launcher's last line: "Spot-check summary: 20 checked, 1 damaged,
+    /// 0 skipped".
+    static func parseSpotCheck(_ output: String) -> SpotCheck? {
+        guard
+            let line = output.split(separator: "\n").last(where: {
+                $0.hasPrefix("Spot-check summary: ")
+            }),
+            let match = line.firstMatch(of: /(\d+) checked, (\d+) damaged/),
+            let checked = Int(match.1), let damaged = Int(match.2)
+        else { return nil }
+        return SpotCheck(checked: checked, damaged: damaged)
+    }
+
     // MARK: - Access test
 
     /// Quick permission diagnostic: exports a few photos to a throwaway temp
@@ -1145,11 +1221,12 @@ actor BackupEngine {
                     kind: record.failureKind, rawMessage: record.message,
                     destination: destination, failedAt: record.start
                 ).plainText)
-        case .success where (record.errors ?? 0) > 0:
-            // Files that should have copied and didn't are a failure the user
-            // would want to hear about.
+        case .success where (record.errors ?? 0) > 0 || (record.damaged ?? 0) > 0:
+            // Files that should have copied and didn't, or copies found
+            // damaged, are a failure the user would want to hear about.
             guard defaults.bool(forKey: Preferences.notifyOnFailure) else { return }
-            kind = .backupIncomplete(message: RunFormatting.errorsSentence(record.errors ?? 0))
+            kind = .backupIncomplete(
+                message: RunFormatting.partialDetails(record).joined(separator: " "))
         case .success:
             guard defaults.bool(forKey: Preferences.notifyAlways) else { return }
             kind = .backupComplete(body: Self.successBody(record))

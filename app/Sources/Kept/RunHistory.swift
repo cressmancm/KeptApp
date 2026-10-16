@@ -60,6 +60,13 @@ struct RunRecord: Codable, Identifiable, Sendable {
     /// kept it, which belong to a folder chosen before then (whose id is nil
     /// too).
     var destinationID: UUID?
+    /// Files already in the backup that the spot-check after this run
+    /// compared with their originals, and how many of them didn't match, or
+    /// were gone or unreadable (production review C2). Those are copied again
+    /// by the next backup. nil when no spot-check ran, and `damaged` nil when
+    /// none were.
+    var spotChecked: Int?
+    var damaged: Int?
 
     var duration: TimeInterval? {
         end.map { $0.timeIntervalSince(start) }
@@ -80,9 +87,12 @@ struct RunRecord: Codable, Identifiable, Sendable {
     /// backup: osxphotos exits 0 either way.
     ///
     /// So is a backup whose summary never came: with no error count, nothing
-    /// says it's complete, and it used to be taken as zero errors.
+    /// says it's complete, and it used to be taken as zero errors. And so is
+    /// one whose spot-check found older copies damaged: those photos aren't
+    /// safely backed up until the next backup copies them again.
     var isPartial: Bool {
-        outcome == .success && ((errors ?? 0) > 0 || unconfirmed == true)
+        outcome == .success
+            && ((errors ?? 0) > 0 || (damaged ?? 0) > 0 || unconfirmed == true)
     }
 
     /// A backup that ran to the end, with what osxphotos reported.

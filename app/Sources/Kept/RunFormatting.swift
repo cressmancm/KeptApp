@@ -270,22 +270,35 @@ enum RunFormatting {
     /// files; nil for any other.
     static func notCopied(_ record: RunRecord) -> String? {
         guard record.isPartial else { return nil }
-        guard let errors = record.errors, errors > 0 else { return "Not confirmed" }
-        return "\(errors.formatted()) not copied"
+        var parts: [String] = []
+        if let errors = record.errors, errors > 0 {
+            parts.append("\(errors.formatted()) not copied")
+        } else if record.unconfirmed == true {
+            parts.append("Not confirmed")
+        }
+        if let damaged = record.damaged, damaged > 0 { parts.append("\(damaged.formatted()) damaged") }
+        return parts.joined(separator: " · ")
     }
 
     /// What the panel says under "Some photos aren't backed up". Markdown:
     /// only copy written here, never engine text.
     static func partialDetails(_ record: RunRecord) -> [String] {
         guard record.isPartial else { return [] }
-        guard let errors = record.errors, errors > 0 else { return [unconfirmedSentence] }
-        return [errorsSentence(errors)]
+        var details: [String] = []
+        if let errors = record.errors, errors > 0 {
+            details.append(errorsSentence(errors))
+        } else if record.unconfirmed == true {
+            details.append(unconfirmedSentence)
+        }
+        if let damaged = record.damaged, damaged > 0 { details.append(damagedSentence(damaged)) }
+        return details
     }
 
     /// The panel's title for a backup that isn't complete: one that couldn't
-    /// copy some files, or one that didn't say.
+    /// copy some files or found damaged ones, or one that didn't say.
     static func partialTitle(_ record: RunRecord) -> String {
-        (record.errors ?? 0) > 0 ? "Some photos aren't backed up" : "Some photos may not be backed up"
+        (record.errors ?? 0) > 0 || (record.damaged ?? 0) > 0
+            ? "Some photos aren't backed up" : "Some photos may not be backed up"
     }
 
     /// A backup that ended without saying how many files failed.
@@ -298,5 +311,15 @@ enum RunFormatting {
         count == 1
             ? "1 item couldn't be copied. The next backup tries it again."
             : "\(count.formatted()) items couldn't be copied. The next backup tries them again."
+    }
+
+    /// Files already in the backup that the spot-check found no longer match
+    /// the library. Their entries in the backup index are cleared, so the
+    /// next backup copies them again.
+    static func damagedSentence(_ count: Int) -> String {
+        count == 1
+            ? "1 item in your backup no longer matches your library. The next backup copies it again."
+            : "\(count.formatted()) items in your backup no longer match your library. "
+                + "The next backup copies them again."
     }
 }

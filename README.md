@@ -28,6 +28,7 @@ Kept is free and privacy-focused, and it always will be. I hope it gives you the
 - **Privacy first.** Kept never tracks, analyzes, or reports on anything you do. I'm a privacy-minded developer, and I'd never build tracking into anything I make. The only thing Kept sends anywhere is a daily check with GitHub for a new release, and you can turn that off in Kept's settings.
 - **Files you can always open.** Your backup is plain photos and videos in date folders, not a format only Kept can read. Keep it on a NAS, an external drive, or another disk.
 - **Catches up on its own.** Asleep, offline, or on battery at backup time? Kept backs up as soon as it can, and retries before skipping a day.
+- **Checks older copies, too.** After each scheduled backup, Kept compares a few photos already in your backup with the originals in Apple Photos. If a copy has been damaged on the disk, Kept tells you and copies it again in the next backup.
 - **Keeps what you delete.** Photos you delete stay in the backup for up to a year, for extra peace of mind.
 - **Tells you when something needs attention.** If a backup fails, some photos don't copy, or backups stop, Kept lets you know in plain words, with what to do next.
 - **Simple uninstall.** If you no longer need Kept, it removes itself cleanly and leaves your backup for you to decide what to do with.
@@ -75,6 +76,7 @@ Kept is a SwiftUI menubar app. The copying itself is done by [osxphotos](https:/
 - **When to back up.** The schedule, catching up after your Mac sleeps, retrying a failed backup, and never starting an unattended backup on battery.
 - **Your network drive.** Reconnecting a NAS that's disconnected, even one that's stuck.
 - **Deleted photos.** Setting them aside in the backup, then clearing them out after the time you chose.
+- **Checking older copies.** After each scheduled backup, comparing 20 files in your backup with their originals in Apple Photos, byte for byte. Kept reads them the same careful way it writes them, never through a link.
 - **Keeping you informed.** The menubar panel, setup, settings, and notifications.
 - **Keeping your backup safe.** Kept won't use your home folder, a system or cloud folder, or a folder holding an Apple Photos library as the backup folder. Before every backup, it checks that the disk is still the one you chose. Inside the backup, Kept doesn't follow links: its own moves and deletions, and the folders and copies osxphotos makes there, refuse a link instead of going through it. It runs osxphotos in an isolated environment.
 

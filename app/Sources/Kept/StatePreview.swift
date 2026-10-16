@@ -20,6 +20,7 @@ enum PreviewScenario: String, CaseIterable, Identifiable, Sendable {
     case healthy
     case healthyLongGap
     case partialBackup
+    case damagedBackup
     case mixedHistory
     // Running
     case runningStarting
@@ -50,7 +51,7 @@ enum PreviewScenario: String, CaseIterable, Identifiable, Sendable {
     var group: Group {
         switch self {
         case .firstRun, .accessBlocked, .readyNoRuns: .setup
-        case .healthy, .healthyLongGap, .partialBackup, .mixedHistory: .healthy
+        case .healthy, .healthyLongGap, .partialBackup, .damagedBackup, .mixedHistory: .healthy
         case .runningStarting, .runningScanning, .runningExporting,
             .runningCleaning, .runningFinishing: .running
         case .volumeUnreachable, .diskFull, .exportFailed, .runCancelled,
@@ -67,6 +68,7 @@ enum PreviewScenario: String, CaseIterable, Identifiable, Sendable {
         case .healthy: "Backed up, recent"
         case .healthyLongGap: "Backed up, nine days ago"
         case .partialBackup: "Backed up, some not copied"
+        case .damagedBackup: "Backed up, spot-check found damage"
         case .mixedHistory: "Every run outcome"
         case .runningStarting: "Running · starting"
         case .runningScanning: "Running · reading library"
@@ -92,6 +94,7 @@ enum PreviewScenario: String, CaseIterable, Identifiable, Sendable {
         case .healthy: "The everyday panel, with a week of good backups."
         case .healthyLongGap: "Same panel, stale copy. Nothing recent in the list."
         case .partialBackup: "Finished, but some files failed to copy."
+        case .damagedBackup: "Finished, but older copies didn't match the library."
         case .mixedHistory: "Recent backups expanded over success, failure, stop, skip, interrupt."
         case .runningStarting: "Indeterminate bar, no counts announced yet."
         case .runningScanning: "The silent stretch before the first export line."
@@ -166,6 +169,14 @@ enum StatePreview {
         case .partialBackup:
             var history = goodWeek(now: now)
             history[history.count - 1].errors = 3
+            return Snapshot(
+                scenario: scenario, status: .idle, history: history,
+                destination: sampleDestination)
+
+        case .damagedBackup:
+            var history = goodWeek(now: now)
+            history[history.count - 1].spotChecked = 20
+            history[history.count - 1].damaged = 2
             return Snapshot(
                 scenario: scenario, status: .idle, history: history,
                 destination: sampleDestination)

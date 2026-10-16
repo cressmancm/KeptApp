@@ -31,6 +31,11 @@ Kept's own helper, which refuses links too.
 The backup folder must be given by its real path, as Kept stores it
 (Destination.from): it is opened by path for each operation and must still be
 that same folder.
+
+    python3 -I -B kept_export.py <backup folder> --spot-check <export.db> <library> <count> <seconds>
+
+checks that a random sample of files already in the backup still match their
+originals, reading them the same way (spot_check).
 """
 
 import builtins
@@ -372,11 +377,15 @@ def _audit(event, args):
             _check(args[index])
 
 
-def install(root):
-    """Holds the export in `root` to the rules above."""
+def _set_root(root):
     global _root, _root_key
     _root = root
     _root_key = [_key(part) for part in _parts(root)]
+
+
+def install(root):
+    """Holds the export in `root` to the rules above."""
+    _set_root(root)
 
     import osxphotos.fileutil as fileutil
     import osxphotos.sidecars as sidecars
@@ -409,10 +418,152 @@ def install(root):
     sys.addaudithook(_audit)
 
 
+# MARK: - Spot-check (production review C2)
+
+SPOT_CHECK = "--spot-check"
+
+
+def _library_sources(library):
+    """For each photo, the files in the library osxphotos may have copied."""
+    import osxphotos
+
+    photos = osxphotos.PhotosDB(dbfile=library)
+
+    def sources(uuid):
+        photo = photos.get_photo(uuid)
+        # get_photo finds photos in Recently Deleted too, which the export
+        # leaves out and whose copies it sets aside, though the backup index
+        # still names them. Their copies aren't missing; they're kept in
+        # Removed from Photos.
+        if photo is None or photo.intrash:
+            return []
+        paths = (photo.path, photo.path_edited, photo.path_raw, photo.path_live_photo,
+                 photo.path_edited_live_photo)
+        return [path for path in paths if path]
+
+    return sources
+
+
+def _source_for(candidates, size, mtime):
+    """The file osxphotos copied: the one still the size and age it was then
+    (osxphotos' own signature, whole seconds). None when none is: not on
+    this Mac (Optimize Mac Storage), or changed since, which the export
+    copies again by itself."""
+    for path in candidates:
+        try:
+            info = os.stat(path)
+        except OSError:
+            continue
+        if stat.S_ISREG(info.st_mode) and info.st_size == size and int(info.st_mtime) == int(mtime):
+            return path
+    return None
+
+
+def _compare(source, names, deadline):
+    """"same", "different", "missing", "unreadable", or "unchecked" when
+    time ran out partway."""
+    import time
+
+    try:
+        descriptor = _open_in(names, os.O_RDONLY)
+    except LinkRefused:
+        raise
+    except (FileNotFoundError, NotADirectoryError):
+        return "missing"
+    except OSError:
+        return "unreadable"
+    try:
+        # Read from the share, not from what this Mac remembers of it.
+        fcntl.fcntl(descriptor, fcntl.F_NOCACHE, 1)
+        with open(source, "rb") as original, os.fdopen(descriptor, "rb", closefd=False) as copy:
+            while True:
+                if time.monotonic() > deadline:
+                    return "unchecked"
+                expected = original.read(1 << 20)
+                try:
+                    actual = copy.read(1 << 20)
+                except OSError:
+                    return "unreadable"
+                if expected != actual:
+                    return "different"
+                if not expected:
+                    return "same"
+    finally:
+        os.close(descriptor)
+
+
+def spot_check(root, export_db, library, count, seconds, sources=None):
+    """Compares a random sample of backed-up files with their originals in
+    the Photos library, byte for byte. A copy that's damaged or can't be
+    read loses its signature in the backup index, so the next
+    backup's --update copies it again over the same name. Prints a line per
+    file and a summary; returns the summary's counts."""
+    import contextlib
+    import sqlite3
+    import time
+
+    deadline = time.monotonic() + seconds
+    _set_root(root)
+    with contextlib.closing(sqlite3.connect(f"file:{export_db}?mode=ro", uri=True)) as db:
+        rows = db.execute(
+            "SELECT id, filepath, uuid, src_size, src_mtime FROM export_data "
+            "WHERE src_size IS NOT NULL AND src_mtime IS NOT NULL AND dest_size IS NOT NULL "
+            "AND error IS NULL ORDER BY random() LIMIT ?", (count,)).fetchall()
+    if rows and sources is None:
+        sources = _library_sources(library)
+    same, damaged, skipped = 0, [], 0
+    for index, (row_id, filepath, uuid, size, mtime) in enumerate(rows):
+        source = _source_for(sources(uuid), size, mtime)
+        names = _parts(filepath)
+        if source is None or not names or ".." in names:
+            skipped += 1
+            continue
+        try:
+            result = _compare(source, names, deadline)
+        except LinkRefused:
+            # Not damage: the next export refuses the link and says so.
+            skipped += 1
+            continue
+        if result == "unchecked":
+            skipped += len(rows) - index
+            break
+        if result == "missing":
+            # Not something to copy again: --update copies any copy it still
+            # needs that's gone, by itself. One that's gone after an export
+            # was set aside, an earlier copy of a photo whose date changed,
+            # say, which the index still names.
+            skipped += 1
+            continue
+        if result == "same":
+            same += 1
+        else:
+            print(f"Spot-check: {result}: {filepath}", flush=True)
+            damaged.append(row_id)
+    if damaged:
+        # No longer a signature osxphotos accepts, so the next --update
+        # copies the photo again, over the same name, which the row still
+        # holds for it.
+        with contextlib.closing(sqlite3.connect(export_db)) as db, db:
+            db.executemany(
+                "UPDATE export_data SET dest_mode = NULL, dest_size = NULL, dest_mtime = NULL "
+                "WHERE id = ?", [(row_id,) for row_id in damaged])
+    print(f"Spot-check summary: {same + len(damaged)} checked, {len(damaged)} damaged, "
+          f"{skipped} skipped", flush=True)
+    return same + len(damaged), len(damaged), skipped
+
+
 def main():
     if len(sys.argv) < 2 or not sys.argv[1].startswith("/"):
         print("usage: kept_export.py <backup folder> <osxphotos arguments...>", file=sys.stderr)
+        print(f"       kept_export.py <backup folder> {SPOT_CHECK} <export.db> <library> "
+              "<count> <seconds>", file=sys.stderr)
         return 2
+    if sys.argv[2:3] == [SPOT_CHECK]:
+        if len(sys.argv) != 7:
+            print("spot-check: expected <export.db> <library> <count> <seconds>", file=sys.stderr)
+            return 2
+        spot_check(sys.argv[1], sys.argv[3], sys.argv[4], int(sys.argv[5]), float(sys.argv[6]))
+        return 0
     install(sys.argv[1])
     sys.argv = ["osxphotos"] + sys.argv[2:]
     status = 0

@@ -97,6 +97,14 @@ enum Config {
     /// What a wake gives the network before anything tries the share, and
     /// what a scheduled backup waits when it fires late, after a sleep.
     static let wakeGraceSecs: TimeInterval = 30
+    /// The spot-check after each unattended backup (production review C2):
+    /// how many files already in the backup it compares with the library,
+    /// how long it may spend comparing, and when it's killed, which allows
+    /// for reading the library first. 20 a night covers the backup's
+    /// 100,000-odd files in the long run, at random, not a sweep.
+    static let spotCheckCount = 20
+    static let spotCheckBudgetSecs: TimeInterval = 5 * 60
+    static let spotCheckTimeoutSecs: TimeInterval = 10 * 60
     static let exportAttempts = 2
     static let logRetentionDays = 30
     /// Runs kept in runs.json. Everything that reads history looks at the
