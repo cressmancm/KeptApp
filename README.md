@@ -35,7 +35,7 @@ Kept is free and privacy-focused, and it always will be. I hope it gives you the
 
 ## Download
 
-Get **Kept-1.3.zip** from the [latest release](https://github.com/cressmancm/KeptApp/releases/latest), unzip it, drag Kept to Applications, and open it. It's signed and notarized by Apple, so it opens without warnings (see [Security and privacy](#security-and-privacy)). Kept's setup then walks you through turning on Full Disk Access in macOS and choosing a backup folder.
+Get **Kept-1.4.zip** from the [latest release](https://github.com/cressmancm/KeptApp/releases/latest), unzip it, drag Kept to Applications, and open it. It's signed and notarized by Apple, so it opens without warnings (see [Security and privacy](#security-and-privacy)). Kept's setup then walks you through turning on Full Disk Access in macOS and choosing a backup folder.
 
 ## Requirements
 
