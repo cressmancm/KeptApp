@@ -5,7 +5,7 @@ Releases are notarized Developer ID builds, published as GitHub releases. Only t
 ## Once
 
 - A **Developer ID Application** certificate in the keychain: Xcode → Settings → Accounts → Manage Certificates → + → Developer ID Application.
-- Its **provisioning profile**, saved as `app/Kept.provisionprofile`: developer.apple.com → Profiles → + → Developer ID, for the App ID `com.chipcressman.Kept`. The portal names the download after the profile, so rename it. It's gitignored. Without it, `release.sh` refuses, because the seal key would stay in the login keychain.
+- Its **provisioning profile**, saved as `app/Kept.provisionprofile`: developer.apple.com → Profiles → + → Developer ID, for the App ID `com.chipcressman.Kept`. The portal names the download after the profile, so rename it. It's gitignored, so it can go missing from a checkout; Xcode keeps a copy named "Kept Default Profile" in `~/Library/Developer/Xcode/UserData/Provisioning Profiles/`. Without it, `release.sh` refuses, because the seal key would stay in the login keychain. So does `build.sh`, because a build installed without it makes the next release ask for the backup folder again.
 - **Notarization credentials** under the keychain profile `kept-notary`:
 
   ```bash

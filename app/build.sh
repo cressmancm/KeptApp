@@ -22,7 +22,9 @@
 # (or name one in KEPT_PROVISIONING_PROFILE). It's what lets Kept keep the key
 # that seals the backup folder setting in the data-protection keychain, where
 # nothing but Kept's team can plant or read it (see SettingsSeal.swift).
-# Without one, Kept uses the login keychain.
+# Without one, a Developer ID build refuses, since releases don't trust a key
+# in the login keychain; KEPT_ALLOW_NO_PROFILE=1 builds one anyway. Kept Dev and
+# ad-hoc builds use the login keychain.
 #
 # Options:
 #   --force       install even while a backup is running
@@ -230,6 +232,45 @@ elif [[ "${KEPT_REQUIRE_PROFILE:-0}" == 1 ]]; then
     echo "!!  No provisioning profile at $PROFILE. A release needs one: without it,"
     echo "!!  the key that seals the backup folder stays in the login keychain."
     exit 1
+elif [[ "$SIGN_ID" == "Developer ID Application:"* ]]; then
+    # Releases trust only the data-protection key, so a Developer ID build
+    # without the profile seals the backup folder with a key the next release
+    # ignores, and that release asks for the folder again. The profile went
+    # missing from a checkout once, the only sign was one "Keychain: login"
+    # line, and the next release asked for the folder.
+    echo
+    echo "!!  ================================================================"
+    echo "!!  No provisioning profile at $PROFILE."
+    echo "!!"
+    echo "!!  Without it, this build seals the backup folder with a key in the"
+    echo "!!  login keychain. Releases don't trust that key, so the next release"
+    echo "!!  you install asks for the backup folder once."
+    echo "!!"
+    # Xcode keeps a copy, named by UUID, once it has downloaded the profile.
+    BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$BUNDLE/Contents/Info.plist")"
+    XCODE_PROFILE=""
+    for candidate in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/"*.provisionprofile(N); do
+        if security cms -D -i "$candidate" 2>/dev/null \
+            | plutil -extract 'Entitlements.com\.apple\.application-identifier' raw -o - - 2>/dev/null \
+            | grep -qx "[A-Z0-9]*\.$BUNDLE_ID"; then
+            XCODE_PROFILE="$candidate"
+            break
+        fi
+    done
+    if [[ -n "$XCODE_PROFILE" ]]; then
+        echo "!!  To fix it, copy the one Xcode keeps:"
+        echo "!!    cp \"$XCODE_PROFILE\" \"$PROFILE\""
+    else
+        echo "!!  To fix it, copy the \"Kept Default Profile\" from"
+        echo "!!  ~/Library/Developer/Xcode/UserData/Provisioning Profiles/ to"
+        echo "!!  app/Kept.provisionprofile, or download it as RELEASING.md says."
+    fi
+    echo "!!  ================================================================"
+    if [[ "${KEPT_ALLOW_NO_PROFILE:-0}" != 1 ]]; then
+        echo "!!  To build without it anyway, set KEPT_ALLOW_NO_PROFILE=1."
+        exit 1
+    fi
+    echo "==> Keychain: login (KEPT_ALLOW_NO_PROFILE=1)"
 else
     echo "==> Keychain: login (no provisioning profile)"
 fi

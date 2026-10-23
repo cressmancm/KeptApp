@@ -43,6 +43,7 @@ Or, from `app`, `make setup` then `make install`; `make` on its own lists the re
 - `--force` installs even while a backup is running. Normally it refuses, because installing kills the backup partway through.
 - `KEPT_INSTALL_TO=~/Applications/Kept.app` installs there instead of `/Applications/Kept.app`, so your build doesn't replace the Kept you use. The script replaces what's at that path, so it refuses anything that isn't an absolute path to a `.app`, or that's already there and isn't Kept.
 - `KEPT_SIGN_IDENTITY="Name"` signs with that identity and never falls back; `KEPT_SIGN_IDENTITY=-` signs ad-hoc on purpose, as CI does.
+- `KEPT_ALLOW_NO_PROFILE=1` builds with a Developer ID but no provisioning profile, which `build.sh` otherwise refuses (see below).
 
 ## Testing from the command line
 
@@ -79,7 +80,7 @@ To start over, use Settings → Advanced → Remove Kept…, which removes all o
 
 Kept reads the Photos library as files, which needs Full Disk Access. macOS ties that grant to the app's signature, so the signature has to stay the same from build to build:
 
-- **A Developer ID**, if you have one, is used automatically, and its builds match the published releases. With its provisioning profile saved as `app/Kept.provisionprofile`, the seal key goes into the data-protection keychain.
+- **A Developer ID**, if you have one, is used automatically, and its builds match the published releases. With its provisioning profile saved as `app/Kept.provisionprofile`, the seal key goes into the data-protection keychain. Without the profile, `build.sh` refuses: the seal key would go into the login keychain, which releases don't trust, so the next release would ask for the backup folder again. It prints where Xcode keeps a copy, if it has one.
 - **The self-signed "Kept Dev" certificate** works the same way for your own builds. Without a profile, the seal key lives in the login keychain.
 - **Ad-hoc signing** changes with every build, so Full Disk Access has to be granted again each time. Fine for CI, painful otherwise.
 
