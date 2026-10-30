@@ -6,7 +6,7 @@
 
 ## Why I made this
 
-My parents gave me my first camera when I was 8, and my photo library has been my most prized possession ever since: close to 50,000 photos and videos, spanning more than three decades. Losing it would be devastating.
+My parents gave me my first camera when I was 8, and my photo library has been my most prized possession ever since: close to 40,000 photos and videos, spanning more than three decades. Losing it would be devastating.
 
 I'm all in on Apple Photos, and iCloud keeps my library synced and backed up. But if Apple ever made a mistake, like bungling an encryption key, I could lose access to all of it at once. I wanted a second copy that didn't depend on anyone's proprietary storage.
 
