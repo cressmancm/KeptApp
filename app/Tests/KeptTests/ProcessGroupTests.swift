@@ -328,6 +328,29 @@ final class ProcessGroupTests: XCTestCase {
         XCTAssertEqual(result.status, 0)
     }
 
+    /// Output reaches Kept as it's printed, not 64KB at a time. The end of
+    /// every export, its cleanup included, used to wait in the pipe until
+    /// osxphotos exited, and the stall watchdog took that for a hang
+    /// (2026-10-28).
+    func testOutputArrivesBeforeTheCommandEnds() async throws {
+        let process = Process()
+        process.executableURL = URL(filePath: "/bin/sh")
+        process.arguments = ["-c", "echo first; exec sleep 10"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        let started = ContinuousClock.now
+        try process.run()
+        try? pipe.fileHandleForWriting.close()
+        let chunk = await withCheckedContinuation { (continuation: CheckedContinuation<Data, Never>) in
+            let once = Once(continuation)
+            PipeReader.start(
+                pipe.fileHandleForReading, onData: { once.resume($0) }, onEnd: { once.resume(Data()) })
+        }
+        process.terminate()
+        XCTAssertEqual(String(decoding: chunk, as: UTF8.self), "first\n")
+        XCTAssertLessThan(started.duration(to: .now), .seconds(5))
+    }
+
     func testOutputIsSplitIntoLinesAsItArrives() {
         var splitter = LineSplitter()
         XCTAssertEqual(splitter.lines(in: Data("one\r\ntw".utf8)), ["one"])

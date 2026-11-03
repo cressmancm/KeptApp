@@ -47,6 +47,7 @@ import shutil
 import stat
 import sys
 import threading
+import time
 import unicodedata
 
 # Kept reads this exit status as "a link in the backup folder was refused".
@@ -367,6 +368,9 @@ _DIR_FD = {"os.mkdir": 2, "os.rename": 2, "os.remove": 1, "os.rmdir": 1, "os.uti
 
 
 def _audit(event, args):
+    if event == "os.scandir":
+        _reading(args[0] if args else None)
+        return
     paths = _EVENTS.get(event)
     if paths is None or getattr(_state, "ours", False):
         return
@@ -375,6 +379,56 @@ def _audit(event, args):
     for index in paths:
         if index < len(args):
             _check(args[index])
+
+
+# MARK: - Progress through the cleanup
+
+# What Kept prints when osxphotos starts reading the backup folder for files
+# no longer in Photos, and then at most once a minute while it reads.
+CLEANUP_STARTED = "Kept: checking the backup folder for deleted photos."
+CLEANUP_REPORT_SECS = 60
+
+_cleanup = None
+
+
+class _Cleanup:
+    def __init__(self):
+        self.started = self.reported = time.monotonic()
+
+
+def _reading(path):
+    """Each folder osxphotos opens to list, while it cleans up. The cleanup
+    reads the whole backup folder twice, which takes as long as twenty
+    minutes on a NAS, and prints nothing until it finds a file to move. The
+    stall watchdog can't tell that from a hang (2026-10-28). Printed only as
+    the reading moves on, so a folder that never answers still goes quiet."""
+    cleanup = _cleanup
+    if cleanup is None or path is None or isinstance(path, int):
+        return
+    now = time.monotonic()
+    if now - cleanup.reported < CLEANUP_REPORT_SECS:
+        return
+    folder = os.fsdecode(path)
+    if not folder.startswith(_root):
+        return
+    cleanup.reported = now
+    folder = folder[len(_root):].strip("/") or "the backup folder"
+    minutes = int((now - cleanup.started) // 60)
+    print(f"Kept: still checking for deleted photos, {minutes} min so far. Now reading {folder}.",
+          flush=True)
+
+
+def _cleaning(original):
+    """Wraps one of osxphotos' two readings of the backup folder."""
+
+    def clean(*args, **kwargs):
+        global _cleanup
+        if _cleanup is None:
+            print(CLEANUP_STARTED, flush=True)
+            _cleanup = _Cleanup()
+        return original(*args, **kwargs)
+
+    return clean
 
 
 def _set_root(root):
@@ -415,6 +469,14 @@ def install(root):
         setattr(cls, name, vars(retrying)[key.replace(".", "_")])
     # The sidecars module's own name for open(), ahead of the built-in.
     sidecars.open = _open
+    # Both run only after the last photo, in this order, and are looked up
+    # by name when they are. By the module's name: osxphotos.cli's own
+    # "export" is the command.
+    import importlib
+
+    export = importlib.import_module("osxphotos.cli.export")
+    for name in ("collect_files_to_keep", "run_cleanup_command"):
+        setattr(export, name, _cleaning(getattr(export, name)))
     sys.addaudithook(_audit)
 
 

@@ -58,6 +58,12 @@ struct ExportProgress: Equatable, Sendable {
 struct ProgressParser {
     private(set) var progress = ExportProgress()
 
+    /// Printed by Kept's launcher (kept_export.py's CLEANUP_STARTED) when
+    /// osxphotos starts reading the backup folder for deleted photos, before
+    /// osxphotos' own "Running cleanup command on" line. The panel used to
+    /// show Copying at 100% for that first reading.
+    static let cleanupStarted = "Kept: checking the backup folder for deleted photos."
+
     private let totalRegex = #/^Exporting (\d+) photos to /#
     private let itemRegex = #/\((\d+)\/(\d+)\)\s*$/#
     // Same line as itemRegex, split out to name the file: the filename may
@@ -98,7 +104,9 @@ struct ProgressParser {
             if let match = line.firstMatch(of: skippedRegex) { progress.skipped = Int(match.1) }
             if let match = line.firstMatch(of: missingRegex) { progress.missing = Int(match.1) }
             if let match = line.firstMatch(of: errorRegex) { progress.errors = Int(match.1) }
-        } else if line.hasPrefix("Running cleanup command on ") || line.hasPrefix("Cleaning up ") {
+        } else if line == Self.cleanupStarted || line.hasPrefix("Running cleanup command on ")
+            || line.hasPrefix("Cleaning up ")
+        {
             progress.phase = .cleaning
         } else if line.hasPrefix(RemovedPhotos.logPrefix) {
             // One per file moved to "Removed from Photos". osxphotos' own

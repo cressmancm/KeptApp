@@ -223,6 +223,13 @@ final class Once<Value: Sendable>: Sendable {
 /// never exited, and the run hung until its timeout. A thread of its own,
 /// not a shared queue's, also means a read that never returns, its writer
 /// stuck on a dead share, holds up nothing but itself.
+///
+/// Not `FileHandle.read(upToCount:)` either: on a pipe it waits for the whole
+/// count, or the end. Output came in 64KB at a time, so whatever osxphotos
+/// printed after the last full block, the end of the export and every line of
+/// its cleanup, sat in the pipe until it exited. On 2026-10-28 that was thirty
+/// minutes, and the stall watchdog killed an export that was still printing.
+/// read(2) returns what's there as soon as there's any.
 enum PipeReader {
     static func start(
         _ handle: FileHandle,
@@ -230,8 +237,17 @@ enum PipeReader {
         onEnd: @escaping @Sendable () -> Void
     ) {
         let thread = Thread {
-            while let chunk = try? handle.read(upToCount: 1 << 16), !chunk.isEmpty {
-                onData(chunk)
+            let fd = handle.fileDescriptor
+            var buffer = [UInt8](repeating: 0, count: 1 << 16)
+            while true {
+                let count = buffer.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
+                if count > 0 {
+                    onData(Data(buffer[..<count]))
+                } else if count == -1, errno == EINTR {
+                    continue
+                } else {
+                    break
+                }
             }
             try? handle.close()
             onEnd()

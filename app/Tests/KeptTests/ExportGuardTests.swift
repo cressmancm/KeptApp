@@ -221,6 +221,29 @@ final class ExportGuardTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: count, encoding: .utf8), "x\n")
     }
 
+    /// osxphotos reads the whole backup folder after the last photo and
+    /// prints nothing until it finds a file to move, which the stall watchdog
+    /// took for a hang (2026-10-28). The launcher says how far it has got,
+    /// and only while it's reading the backup folder for that.
+    func testTheCleanupSaysHowFarItHasGot() async throws {
+        let output = try await python("""
+            os.makedirs(os.path.join(root, "2026", "10", "31"))
+            os.makedirs(outside, exist_ok=True)
+            guard.CLEANUP_REPORT_SECS = 0
+            list(os.walk(root))
+            from osxphotos.cli.export import collect_files_to_keep
+            collect_files_to_keep(["*.keep"], root)
+            list(os.walk(outside))
+            """)
+        XCTAssertEqual(output.split(separator: "\n").map(String.init), [
+            ProgressParser.cleanupStarted,
+            "Kept: still checking for deleted photos, 0 min so far. Now reading the backup folder.",
+            "Kept: still checking for deleted photos, 0 min so far. Now reading 2026.",
+            "Kept: still checking for deleted photos, 0 min so far. Now reading 2026/10.",
+            "Kept: still checking for deleted photos, 0 min so far. Now reading 2026/10/31.",
+        ])
+    }
+
     func testNoLauncherMeansNoExport() async throws {
         let marker = scratch.appending(path: "python-ran")
         let python = scratch.appending(path: "python")

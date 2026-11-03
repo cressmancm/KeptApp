@@ -111,6 +111,15 @@ final class ProgressParserTests: XCTestCase {
         XCTAssertEqual(parser.progress.currentItemName, "IMG_5423.HEIC", "filename is stale too")
     }
 
+    /// The launcher's line comes before osxphotos' own, at the start of the
+    /// first of its two readings of the backup folder.
+    func testTheLaunchersCleanupLineStartsCleaning() {
+        var parser = ProgressParser()
+        _ = parser.consume(line: "Exporting IMG_5423.HEIC (5AB8590A-E05C-4661-8E50-D98B0FADF06D.heic) (2/2)")
+        XCTAssertTrue(parser.consume(line: ProgressParser.cleanupStarted))
+        XCTAssertEqual(parser.progress.phase, .cleaning)
+    }
+
     // MARK: - Timestamped progress marks
 
     private func exporting(current: Int, total: Int) -> ExportProgress {
