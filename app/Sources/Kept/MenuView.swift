@@ -33,6 +33,8 @@ struct MenuView: View {
                         controller: controller, kind: kind, message: message, now: context.date)
                 case .waitingForPower:
                     WaitingForPowerPanel(controller: controller, now: context.date)
+                case .waitingForShare:
+                    WaitingForSharePanel(controller: controller, now: context.date)
                 case .idle:
                     HealthyPanel(controller: controller, now: context.date)
                 }
@@ -388,6 +390,62 @@ private struct WaitingForPowerPanel: View {
                 DestinationFacts(controller: controller, now: now)
 
                 Button("Back Up Anyway") { controller.startBackup(.manual) }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .frame(maxWidth: .infinity)
+            }
+
+            Divider()
+            RecentRunsView(controller: controller, isExpanded: $isExpanded, now: now)
+            Divider()
+            FooterBar {}
+        }
+    }
+}
+
+// MARK: - Waiting for the share
+
+/// The NAS didn't answer: away from home, most likely, which is expected and
+/// gets no alarm. Once the last good backup is as old as the daily check
+/// allows, the panel says backups have stopped, in the same words as its
+/// notification.
+private struct WaitingForSharePanel: View {
+    let controller: BackupController
+    let now: Date
+    @AppStorage(Preferences.recentRunsExpanded) private var isExpanded = false
+
+    var body: some View {
+        let stale = controller.shareWaitIsStale(now: now)
+        let server = FailureCopy.shareName(controller.displayDestination)
+        VStack(spacing: 0) {
+            PanelSection {
+                if stale {
+                    StatusRow(
+                        symbol: "exclamationmark.circle.fill", tint: .red,
+                        title: "Backups have stopped",
+                        subtitle: FailureCopy.lastGoodCopy(controller.lastSuccess, now: now))
+                } else {
+                    StatusRow(
+                        symbol: "clock", tint: .secondary,
+                        title: "Waiting for the backup folder",
+                        subtitle: controller.lastSuccess.map {
+                            RunFormatting.healthySubtitle($0, now: now)
+                        } ?? "No backups yet")
+                }
+
+                InfoCard {
+                    Text(.init(stale
+                        ? FailureCopy.shareStoppedCard(server)
+                        : FailureCopy.shareWaitingCard(server)))
+                        .font(.caption)
+                        .foregroundStyle(Color.primary.opacity(0.72))
+                        .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                DestinationFacts(controller: controller, now: now)
+
+                Button("Back Up Now") { controller.startBackup(.manual) }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
                     .frame(maxWidth: .infinity)

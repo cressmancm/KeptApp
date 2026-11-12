@@ -112,4 +112,69 @@ final class RunHistoryTests: XCTestCase {
         XCTAssertEqual(loaded.filter { $0.outcome == .success }.count, 1)
         XCTAssertEqual(loaded.map(\.start), loaded.map(\.start).sorted())
     }
+
+    // MARK: - A wait for the share
+
+    private func shareWait(_ hours: Double, folder: UUID? = nil) -> RunRecord {
+        let start = Date(timeIntervalSince1970: 1_800_000_000) + hours * 3600
+        var record = RunRecord(trigger: .scheduled, start: start)
+        record.destinationID = folder
+        record.end = start + 30
+        record.outcome = .skipped
+        record.deferral = .shareAway
+        record.logPath = "/logs/\(hours).log"
+        return record
+    }
+
+    /// A trip used to add a failed run with every try, three a night. A wait
+    /// is one row, from its first try to its last.
+    func testAWaitForTheShareIsOneRecord() throws {
+        let first = shareWait(0)
+        try RunHistory.upsert(RunRecord(trigger: .scheduled, start: first.start), to: url)
+        var saved = try RunHistory.upsertDeferral(first, to: url)
+        XCTAssertEqual(saved.id, first.id)
+        for hours in [1.0, 2, 24, 25] {
+            saved = try RunHistory.upsertDeferral(shareWait(hours), to: url)
+        }
+        let loaded = RunHistory.load(from: url).filter { $0.outcome == .skipped }
+        XCTAssertEqual(loaded.count, 1)
+        XCTAssertEqual(loaded.first?.id, first.id)
+        XCTAssertEqual(loaded.first?.start, first.start)
+        XCTAssertEqual(loaded.first?.end, shareWait(25).end)
+        XCTAssertEqual(loaded.first?.logPath, "/logs/25.0.log")
+        XCTAssertEqual(saved.id, first.id)
+    }
+
+    /// Anything in between ends the wait, and the next one starts its own row.
+    func testABackupInBetweenStartsANewWait() throws {
+        try RunHistory.upsertDeferral(shareWait(0), to: url)
+        try RunHistory.upsert(record(.success), to: url)
+        try RunHistory.upsertDeferral(shareWait(30), to: url)
+        var power = shareWait(31)
+        power.deferral = .power
+        try RunHistory.upsertDeferral(power, to: url)
+        try RunHistory.upsertDeferral(shareWait(32), to: url)
+        XCTAssertEqual(
+            RunHistory.load(from: url).map(\.deferral), [.shareAway, nil, .shareAway, .power, .shareAway])
+    }
+
+    /// Each backup folder has its own history, and its own waits.
+    func testAWaitIsPerFolder() throws {
+        let other = UUID()
+        try RunHistory.upsertDeferral(shareWait(0), to: url)
+        try RunHistory.upsertDeferral(shareWait(1, folder: other), to: url)
+        try RunHistory.upsertDeferral(shareWait(2), to: url)
+        let loaded = RunHistory.load(from: url)
+        XCTAssertEqual(loaded.count, 2)
+        XCTAssertEqual(loaded.first?.end, shareWait(2).end)
+    }
+
+    /// Records from before Kept kept a reason still load.
+    func testOldRecordsDecodeWithoutADeferral() throws {
+        let json = #"[{"id":"7C8E2A3B-0F5D-4C1A-9E6B-2D4F8A1C3E5B","trigger":"scheduled","#
+            + #""start":"2026-10-01T02:00:00Z","outcome":"skipped","message":"Skipped"}]"#
+        let records = try XCTUnwrap(RunHistory.decode(Data(json.utf8)))
+        XCTAssertEqual(records.count, 1)
+        XCTAssertNil(records.first?.deferral)
+    }
 }

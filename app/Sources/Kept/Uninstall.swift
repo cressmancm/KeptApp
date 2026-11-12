@@ -68,8 +68,8 @@ enum Uninstall {
     /// from a standard test account cleared it and silently broke the main
     /// account's nightly backup (2026-10-05). Kept used to reset Automation
     /// there, as the one grant macOS keeps per account, but Kept never needs
-    /// Automation: reconnecting a share is `mount volume`, which sends no
-    /// Apple Event (verified 2026-10-13 with the entitlement removed).
+    /// Automation: it reconnects a share through NetFS, which sends no Apple
+    /// Event (ShareMount).
     nonisolated static func tccResetArguments(bundleIdentifier: String) -> [String] {
         ["reset", "All", bundleIdentifier]
     }

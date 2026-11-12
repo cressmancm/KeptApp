@@ -46,6 +46,8 @@ final class Scheduler {
     nonisolated static func clamped(_ value: Int, _ range: ClosedRange<Int>) -> Int {
         min(max(value, range.lowerBound), range.upperBound)
     }
+    /// After a wake, once the network has had its moment, before catch-up.
+    var onWake: (() -> Void)?
     var catchUpEnabled: Bool { defaults.bool(forKey: Preferences.catchUpEnabled) }
 
     func start() {
@@ -57,6 +59,7 @@ final class Scheduler {
                 self?.rearm()
                 // Give the network a moment before a catch-up run tries to mount.
                 try? await Task.sleep(for: .seconds(Config.wakeGraceSecs))
+                self?.onWake?()
                 self?.fireCatchUpIfMissed()
             }
         }

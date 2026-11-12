@@ -18,6 +18,9 @@ import UserNotifications
 /// button so that stays the user's decision.
 enum StalenessCheck {
     static let categoryIdentifier = "keptStaleBackup"
+    /// Followed by the threshold in days. A good backup clears what it finds
+    /// with this prefix (KeptNotification.clearWarnings).
+    static let identifierPrefix = "staleness-"
     static let launchActionIdentifier = "keptLaunchApp"
 
     /// Notification category shared by this check and the running app, so the
@@ -75,7 +78,7 @@ enum StalenessCheck {
         let done = DispatchSemaphore(value: 0)
         center.add(
             UNNotificationRequest(
-                identifier: "staleness-\(threshold)", content: content, trigger: nil)
+                identifier: "\(identifierPrefix)\(threshold)", content: content, trigger: nil)
         ) { _ in done.signal() }
         _ = done.wait(timeout: .now() + 10)
         exit(0)

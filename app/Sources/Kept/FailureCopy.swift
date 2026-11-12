@@ -80,6 +80,24 @@ enum FailureCopy {
         }
     }
 
+    /// The server, escaped for the authored copy below.
+    static func shareName(_ destination: Destination?) -> String {
+        escapedMarkdown(displayTarget(destination))
+    }
+
+    /// Waiting for the share, before backups count as stopped. No promise
+    /// of "when it's back": Kept doesn't watch for the share, it tries again.
+    static func shareWaitingCard(_ server: String) -> String {
+        "Kept can't reach **\(server)** from this network. "
+            + "It tries again when your Mac wakes, and at the next backup."
+    }
+
+    /// Still waiting, and now as long as the daily check allows.
+    static func shareStoppedCard(_ server: String) -> String {
+        "Kept can't reach **\(server)**. If you're away, it catches up when you're back. "
+            + "If not, check that it's on and connected."
+    }
+
     /// Backslash-escapes what markdown gives meaning to mid-sentence:
     /// emphasis, code, links, autolinks and strikethrough. Dots and dashes
     /// only matter at the start of a line, which a name never is here.

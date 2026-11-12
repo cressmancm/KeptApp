@@ -35,6 +35,8 @@ enum PreviewScenario: String, CaseIterable, Identifiable, Sendable {
     case runCancelled
     case unmappedFailure
     case waitingForPower
+    case waitingForShare
+    case shareStopped
 
     var id: String { rawValue }
 
@@ -55,7 +57,7 @@ enum PreviewScenario: String, CaseIterable, Identifiable, Sendable {
         case .runningStarting, .runningScanning, .runningExporting,
             .runningCleaning, .runningFinishing: .running
         case .volumeUnreachable, .diskFull, .exportFailed, .runCancelled,
-            .unmappedFailure, .waitingForPower: .trouble
+            .unmappedFailure, .waitingForPower, .waitingForShare, .shareStopped: .trouble
         }
     }
 
@@ -81,6 +83,8 @@ enum PreviewScenario: String, CaseIterable, Identifiable, Sendable {
         case .runCancelled: "Stopped by you"
         case .unmappedFailure: "Failed · raw engine message"
         case .waitingForPower: "Waiting for power"
+        case .waitingForShare: "Waiting for the backup folder"
+        case .shareStopped: "Waiting, backups have stopped"
         }
     }
 
@@ -107,6 +111,8 @@ enum PreviewScenario: String, CaseIterable, Identifiable, Sendable {
         case .runCancelled: "The user stopped it; nothing broke."
         case .unmappedFailure: "Engine text shown verbatim — never parsed as markdown."
         case .waitingForPower: "Deferred on battery. Not a failure, and says so."
+        case .waitingForShare: "Away from the NAS. Idle glyph, no alarm."
+        case .shareStopped: "Still away, past the warning threshold. Badged, like a failure."
         }
     }
 }
@@ -279,6 +285,22 @@ enum StatePreview {
                 run(hoursAgo: 1, outcome: .skipped, now: now,
                     message: "Skipped — on battery power"))
             return snapshot
+
+        case .waitingForShare:
+            var snapshot = Snapshot(
+                scenario: scenario, status: .waitingForShare,
+                history: goodWeek(now: now).dropLast(), destination: sampleDestination)
+            snapshot.history.append(shareWait(hoursAgo: 30, now: now))
+            return snapshot
+
+        case .shareStopped:
+            // Older than the longest threshold Settings offers, 14 days, so it
+            // reads as stopped whatever the setting.
+            let success = run(hoursAgo: 15 * 24 + 6, outcome: .success, exported: 9, now: now)
+            return Snapshot(
+                scenario: scenario, status: .waitingForShare,
+                history: [success, shareWait(hoursAgo: 15 * 24 - 18, now: now)],
+                destination: sampleDestination)
         }
     }
 
@@ -317,6 +339,15 @@ enum StatePreview {
 
     /// Six nightly successes, newest last — the shape `RunHistory.load()`
     /// returns, which everything downstream assumes.
+    /// One wait for the share, however many tries it took.
+    private static func shareWait(hoursAgo: Double, now: Date) -> RunRecord {
+        var record = run(
+            hoursAgo: hoursAgo, outcome: .skipped, minutes: hoursAgo * 60 - 60, now: now,
+            message: "Skipped. Couldn't reach nas.local from this network.")
+        record.deferral = .shareAway
+        return record
+    }
+
     private static func goodWeek(now: Date) -> [RunRecord] {
         (0..<6).reversed().map { night in
             run(

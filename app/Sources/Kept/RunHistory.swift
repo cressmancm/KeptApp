@@ -11,12 +11,21 @@ enum BackupTrigger: String, Codable, Sendable {
 enum RunOutcome: String, Codable, Sendable {
     case success, failed, cancelled
     /// Lock held by another process — nothing ran.
-    /// Also used for a run deferred because the Mac was on battery.
+    /// Also used for a run deferred (see `Deferral`).
     case skipped
     /// The process died mid-run — quit, killed by an installer, or crashed —
     /// so nothing ever wrote a final outcome. Reconstructed at the next launch
     /// from a record that was left without one.
     case interrupted
+}
+
+/// Why a skipped run waited. Neither is a failure: nothing was tried.
+enum Deferral: String, Codable, Sendable {
+    /// On battery, where macOS can sleep partway through.
+    case power
+    /// Nothing answered at the share's address: away from home, most
+    /// likely, or the NAS is off.
+    case shareAway
 }
 
 /// What went wrong, in the terms the user can act on. Recorded so the failed
@@ -67,6 +76,9 @@ struct RunRecord: Codable, Identifiable, Sendable {
     /// none were.
     var spotChecked: Int?
     var damaged: Int?
+    /// Why a skipped run waited. nil for other runs, and for records from
+    /// before Kept kept it.
+    var deferral: Deferral?
 
     var duration: TimeInterval? {
         end.map { $0.timeIntervalSince(start) }
@@ -180,6 +192,44 @@ enum RunHistory {
         } else {
             records.append(record)
         }
+        try store(records, to: url)
+    }
+
+    /// Saves a deferral, folded into the one before it when that was the
+    /// same wait: the folder's last record, deferred for the same reason. It
+    /// keeps that record's start, and takes this one's end and log. Returns
+    /// what was saved.
+    ///
+    /// A trip used to add a failed run with every try, three a night. One
+    /// grey row for the whole wait says what happened without burying the
+    /// backups either side of it.
+    @discardableResult
+    static func upsertDeferral(_ record: RunRecord, to url: URL = Config.historyURL) throws
+        -> RunRecord
+    {
+        preserveIfUnreadable(url)
+        var records = load(from: url)
+        records.removeAll { $0.id == record.id }
+        guard record.deferral != nil,
+            let index = records.lastIndex(where: { $0.destinationID == record.destinationID }),
+            records[index].outcome == .skipped, records[index].deferral == record.deferral
+        else {
+            records.append(record)
+            try store(records, to: url)
+            return record
+        }
+        var wait = records[index]
+        wait.end = record.end
+        wait.message = record.message
+        wait.logPath = record.logPath ?? wait.logPath
+        records[index] = wait
+        try store(records, to: url)
+        return wait
+    }
+
+    /// Trims and writes the whole history.
+    private static func store(_ records: [RunRecord], to url: URL) throws {
+        var records = records
         // Oldest first, but never a folder's latest success: it's what the
         // panel, the failed panel and the daily check measure from, and losing
         // it to a run of failures or deferrals makes them all say no backup

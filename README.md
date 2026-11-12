@@ -28,6 +28,7 @@ Kept is free and privacy-focused, and it always will be. I hope it gives you the
 - **Privacy first.** Kept never tracks, analyzes, or reports on anything you do. I'm a privacy-minded developer, and I'd never build tracking into anything I make. The only thing Kept sends anywhere is a daily check with GitHub for a new release, and you can turn that off in Kept's settings.
 - **Files you can always open.** Your backup is plain photos and videos in date folders, not a format only Kept can read. Keep it on a NAS, an external drive, or another disk.
 - **Catches up on its own.** Asleep, offline, or on battery at backup time? Kept backs up as soon as it can, and retries before skipping a day.
+- **Quiet while you travel.** When your NAS can't be reached, Kept waits instead of failing: no macOS alerts, no failure notifications, and no warning icon. It tries again when your Mac wakes, and only tells you if backups stop for longer than you chose in Kept's settings.
 - **Checks older copies, too.** After each scheduled backup, Kept compares a few photos already in your backup with the originals in Apple Photos. If a copy has been damaged on the disk, Kept tells you and copies it again in the next backup.
 - **Keeps what you delete.** Photos you delete stay in the backup for up to a year, for extra peace of mind.
 - **Tells you when something needs attention.** If a backup fails, some photos don't copy, or backups stop, Kept lets you know in plain words, with what to do next.
@@ -74,7 +75,7 @@ Kept also adds a login item and a once-a-day check, which macOS lists in System 
 Kept is a SwiftUI menubar app. The copying itself is done by [osxphotos](https://github.com/RhetTbull/osxphotos), which ships inside Kept with its own Python, so there's nothing else to install. Kept takes care of everything around it:
 
 - **When to back up.** The schedule, catching up after your Mac sleeps, retrying a failed backup, and never starting an unattended backup on battery.
-- **Your network drive.** Reconnecting a NAS that's disconnected, even one that's stuck.
+- **Your network drive.** Reconnecting a NAS that's disconnected, even one that's stuck, through macOS's own file sharing with its alerts turned off. Kept never checks which network your Mac is on: trying the NAS is how it finds out it's back.
 - **Deleted photos.** Setting them aside in the backup, then clearing them out after the time you chose.
 - **Checking older copies.** After each scheduled backup, comparing 20 files in your backup with their originals in Apple Photos, byte for byte. Kept reads them the same careful way it writes them, never through a link.
 - **Keeping you informed.** The menubar panel, setup, settings, and notifications.

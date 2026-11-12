@@ -229,9 +229,9 @@ extension Destination {
 
     /// Whether a stored share URL is still shaped like one.
     ///
-    /// The URL reaches `osascript` as an argument and is read back out of
-    /// `argv`, never spliced into script text, so no character in it can turn
-    /// into code. What's still refused is anything that isn't an SMB URL with
+    /// The URL is handed to NetFS as a URL (ShareMount), never spliced into
+    /// script text, so no character in it can turn into code. It used to go
+    /// to `osascript`, where that took care. What's still refused is anything that isn't an SMB URL with
     /// a host, and characters no share name can contain: control characters,
     /// raw whitespace (a mount source encodes it), and `" \ < > |`. This used
     /// to refuse shell punctuation too, which also refused real share names:

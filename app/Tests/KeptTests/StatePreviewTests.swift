@@ -35,7 +35,7 @@ final class StatePreviewTests: XCTestCase {
                     scenario.rawValue)
             case .trouble:
                 let isTrouble: Bool = switch preview.status {
-                case .failed, .waitingForPower: true
+                case .failed, .waitingForPower, .waitingForShare: true
                 default: false
                 }
                 XCTAssertTrue(isTrouble, scenario.rawValue)
@@ -51,6 +51,7 @@ final class StatePreviewTests: XCTestCase {
         XCTAssertTrue(statuses.contains(.needsDestination))
         XCTAssertTrue(statuses.contains(.needsPhotosAccess))
         XCTAssertTrue(statuses.contains(.waitingForPower))
+        XCTAssertTrue(statuses.contains(.waitingForShare))
         XCTAssertTrue(statuses.contains { if case .running = $0 { true } else { false } })
         XCTAssertTrue(statuses.contains { if case .failed = $0 { true } else { false } })
     }

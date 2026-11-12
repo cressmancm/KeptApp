@@ -16,14 +16,6 @@ final class AppLocationTests: XCTestCase {
         XCTAssertNil(AppLocation.originalURL())
     }
 
-    /// The share URL must stay an argument after "--", never script text.
-    func testTheMountScriptTakesTheURLAsAnArgument() {
-        let url = "smb://nas.local/Chip's%20Photos"
-        let arguments = BackupEngine.mountScriptArguments(url)
-        XCTAssertEqual(arguments.suffix(2), ["--", url])
-        XCTAssertFalse(arguments.dropLast().contains { $0.contains("nas.local") })
-    }
-
     /// The lookup isn't in the public headers, so a macOS that drops it
     /// should fail here rather than leave every download asking to be moved
     /// by hand.

@@ -22,6 +22,10 @@ final class BackupController {
         /// A scheduled run was deferred because the Mac is on battery. Not a
         /// failure — nothing was attempted, and it starts itself on plug-in.
         case waitingForPower
+        /// An unattended run found nothing answering at the share's address:
+        /// away from home, most likely. Not a failure either. The next wake,
+        /// launch or scheduled time tries again (deferForShare).
+        case waitingForShare
 
         var isFailed: Bool {
             if case .failed = self { true } else { false }
@@ -195,6 +199,8 @@ final class BackupController {
 
         if destination == nil {
             status = .needsDestination
+        } else if let last = folderHistory.last, last.deferral == .shareAway {
+            status = .waitingForShare
         } else if let last = folderHistory.last, last.outcome == .failed {
             // A failure that happened before the last quit is still the truth
             // about the library, so the panel opens on it rather than implying
@@ -209,6 +215,7 @@ final class BackupController {
             RunHistory.load().runs(for: self?.destination)
         }
         scheduler.onRearm = { [weak self] fire in self?.nextRun = fire }
+        scheduler.onWake = { [weak self] in self?.shareWaitWoke() }
         // Event-driven, not polled: plugging in is the signal that a deferred
         // or failed night can finally be made good.
         powerObserver = PowerSource.observe { [weak self] in
@@ -445,7 +452,7 @@ final class BackupController {
     }
 
     nonisolated static func statusDroppingAutomaticWork(_ status: Status) -> Status {
-        status == .waitingForPower ? .idle : status
+        status == .waitingForPower || status == .waitingForShare ? .idle : status
     }
 
     /// Re-attempts a failed run after the cooldown, at most
@@ -499,6 +506,7 @@ final class BackupController {
         record.destinationID = destination?.id
         record.end = .now
         record.outcome = .skipped
+        record.deferral = .power
         record.message = "Skipped — on battery power"
         do {
             try RunHistory.upsert(record)
@@ -522,6 +530,14 @@ final class BackupController {
             // run failed — now that the machine can actually finish one.
             scheduler.fireCatchUpIfMissed()
         }
+    }
+
+    /// Waiting for the share, and the Mac just woke: home again, perhaps.
+    /// Tried whether or not catch-up is on, as plugging in is for power,
+    /// since this is the backup that was held back, not a missed one. Kept
+    /// never looks at which network it's on, so trying is how it finds out.
+    private func shareWaitWoke() {
+        if status == .waitingForShare { startBackup(.catchUp) }
     }
 
     func cancelBackup() {
@@ -582,6 +598,13 @@ final class BackupController {
             retryTask?.cancel()
             retryTask = nil
             status = destination == nil ? .needsDestination : .idle
+            Task { await KeptNotification.clearWarnings() }
+        case .skipped where record.deferral == .shareAway:
+            // Waiting, not failed: no retry, which would only find the same
+            // nothing an hour later. A wake tries again (shareWaitWoke).
+            retryTask?.cancel()
+            retryTask = nil
+            status = .waitingForShare
         default:
             // Cancelled or skipped: the user's choice or a deferral, neither of
             // which should provoke an automatic retry.
@@ -877,11 +900,31 @@ final class BackupController {
         // Amber, like the other "needs something from you" states: plugging in
         // is the action, and an idle glyph would imply all is well.
         case .waitingForPower: return .needsSetup
+        // Being away is expected, so nothing in the menubar says so until it
+        // has gone on as long as the daily check allows. Then it's the same
+        // badge as a failure, warning switched on or not.
+        case .waitingForShare: return shareWaitIsStale() ? .failed : .idle
         case .idle: return .idle
         }
     }
 
     var menuBarSymbol: String { glyphState.symbol }
+
+    /// The daily check's own test, with the user's threshold: whether the
+    /// last good backup is old enough that "Backups have stopped" is due.
+    func shareWaitIsStale(now: Date = .now) -> Bool {
+        Self.shareWaitIsStale(
+            history: displayHistory, thresholdDays: stalenessDays,
+            waitingSince: displayDestination?.chosenAt, now: now)
+    }
+
+    nonisolated static func shareWaitIsStale(
+        history: [RunRecord], thresholdDays: Int, waitingSince: Date?, now: Date = .now
+    ) -> Bool {
+        StalenessCheck.staleMessage(
+            history: history, thresholdDays: thresholdDays, waitingSince: waitingSince, now: now)
+            != nil
+    }
 
     /// `logPath` comes back from runs.json, which anything running as this user
     /// can rewrite. `NSWorkspace.open` on an arbitrary path launches whatever

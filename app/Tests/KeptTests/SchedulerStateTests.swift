@@ -168,4 +168,48 @@ final class SchedulerStateTests: XCTestCase {
         XCTAssertEqual(BackupController.statusDroppingAutomaticWork(failed), failed)
         XCTAssertEqual(BackupController.statusDroppingAutomaticWork(.idle), .idle)
     }
+
+    func testChoosingManuallyStopsWaitingForTheShare() {
+        XCTAssertEqual(BackupController.statusDroppingAutomaticWork(.waitingForShare), .idle)
+    }
+
+    /// A trip of waits for the share keeps every door open: no cooldown, no
+    /// try used up, and the night still missed, so a wake at home backs up.
+    func testWaitingForTheShareCostsNothing() {
+        let slot = Date(timeIntervalSince1970: 1_800_000_000)
+        var wait = RunRecord(trigger: .scheduled, start: slot + 60)
+        wait.outcome = .skipped
+        wait.deferral = .shareAway
+        wait.end = slot + 3 * 3600
+        let history = [wait]
+        XCTAssertNil(Scheduler.lastCooldownAttempt(history))
+        XCTAssertEqual(Scheduler.failedAttempts(history, since: slot), 0)
+        XCTAssertFalse(Scheduler.slotWasServiced(history, since: slot))
+    }
+
+    /// Away is quiet until the last good backup is as old as the warning
+    /// threshold, then badged like a failure.
+    func testAWaitIsQuietUntilTheThreshold() {
+        let calendar = Calendar(identifier: .gregorian)
+        let now = calendar.date(from: DateComponents(year: 2026, month: 11, day: 12, hour: 9))!
+        func history(lastGoodDaysAgo days: Int) -> [RunRecord] {
+            var success = RunRecord(
+                trigger: .scheduled, start: calendar.date(byAdding: .day, value: -days, to: now)!)
+            success.outcome = .success
+            var wait = RunRecord(trigger: .scheduled, start: now - 3600)
+            wait.outcome = .skipped
+            wait.deferral = .shareAway
+            return [success, wait]
+        }
+        for (days, stale) in [(1, false), (2, false), (3, true), (9, true)] {
+            XCTAssertEqual(
+                BackupController.shareWaitIsStale(
+                    history: history(lastGoodDaysAgo: days), thresholdDays: 3, waitingSince: nil,
+                    now: now),
+                stale, "\(days) days")
+        }
+        XCTAssertFalse(
+            BackupController.shareWaitIsStale(
+                history: history(lastGoodDaysAgo: 9), thresholdDays: 14, waitingSince: nil, now: now))
+    }
 }

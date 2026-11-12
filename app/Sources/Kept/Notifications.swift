@@ -52,6 +52,26 @@ enum KeptNotification {
         guard Bundle.main.bundleURL.pathExtension == "app" else { return }
         try? await UNUserNotificationCenter.current().add(
             UNNotificationRequest(
-                identifier: UUID().uuidString, content: content(kind), trigger: nil))
+                identifier: identifier(kind), content: content(kind), trigger: nil))
+    }
+
+    /// The one identifier every failure shares. A night's retries each
+    /// posted their own, so Notification Center kept a stack of the same
+    /// failure. Now each replaces the last.
+    static let failedIdentifier = "backup-failed"
+
+    static func identifier(_ kind: Kind) -> String {
+        if case .backupFailed = kind { failedIdentifier } else { UUID().uuidString }
+    }
+
+    /// Clears what a good backup has made untrue: the failure, and the daily
+    /// check's "Backups have stopped" (identified "staleness-<days>").
+    static func clearWarnings() async {
+        guard Bundle.main.bundleURL.pathExtension == "app" else { return }
+        let center = UNUserNotificationCenter.current()
+        let stale = await center.deliveredNotifications()
+            .map(\.request.identifier)
+            .filter { $0.hasPrefix(StalenessCheck.identifierPrefix) }
+        center.removeDeliveredNotifications(withIdentifiers: [failedIdentifier] + stale)
     }
 }

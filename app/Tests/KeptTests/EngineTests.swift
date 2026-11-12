@@ -72,7 +72,9 @@ final class EngineTests: XCTestCase {
 
     func testAStaleShareIsForcedOffAndRemounted() async throws {
         let share = Mutex((mounted: true, healthy: false))
+        let order = Mutex<[String]>([])
         let commands = FakeCommands { call, _ in
+            order.withLock { $0.append(call.executable) }
             switch call.executable {
             case "/sbin/mount":
                 return .ok(share.withLock { $0.mounted } ? Self.mountedLine : "")
@@ -81,40 +83,102 @@ final class EngineTests: XCTestCase {
             case "/usr/sbin/diskutil":
                 share.withLock { $0.mounted = false }
                 return .ok()
-            case "/usr/bin/osascript":
-                share.withLock { $0 = (true, true) }
-                return .ok()
             default:
                 return .ok()
             }
         }
-        let engine = BackupEngine(timing: fast, command: commands.runner)
+        let engine = BackupEngine(
+            timing: fast,
+            mountShare: { _, _ in
+                order.withLock { $0.append("mount") }
+                share.withLock { $0 = (true, true) }
+                return 0
+            },
+            command: commands.runner)
         nonisolated(unsafe) let log = try runLog()
         try await engine.ensureMount(self.share, log)
-        let order = commands.executables
-        let unmount = try XCTUnwrap(order.firstIndex(of: "/usr/sbin/diskutil"))
-        let mount = try XCTUnwrap(order.firstIndex(of: "/usr/bin/osascript"))
+        let calls = order.withLock { $0 }
+        let unmount = try XCTUnwrap(calls.firstIndex(of: "/usr/sbin/diskutil"))
+        let mount = try XCTUnwrap(calls.firstIndex(of: "mount"))
         XCTAssertLessThan(unmount, mount)
-        XCTAssertEqual(order.last, "/bin/ls")
+        XCTAssertEqual(calls.last, "/bin/ls")
+    }
+
+    /// Away from home nothing answers. That's a wait, not a failure, and
+    /// nothing else is tried: the old mount script put macOS's "problem
+    /// connecting to the server" alert up with every try (2026-11-12).
+    func testAShareNothingAnswersIsOutOfReach() async throws {
+        for status in [EHOSTUNREACH, ETIMEDOUT] {
+            let commands = FakeCommands { _, _ in .ok() }
+            let engine = BackupEngine(
+                timing: fast, mountShare: { _, _ in status }, command: commands.runner)
+            nonisolated(unsafe) let log = try runLog()
+            do {
+                try await engine.ensureMount(share, log)
+                XCTFail("Expected the reconnect to fail")
+            } catch let error as BackupError {
+                XCTAssertTrue(error.outOfReach)
+                XCTAssertEqual(error.kind, .volumeUnreachable)
+                XCTAssertEqual(error.message, "Couldn't reach nas.local from this network.")
+            }
+            XCTAssertEqual(commands.executables, ["/sbin/mount"])
+        }
+    }
+
+    /// Something answered and refused: a share that's gone, or a password it
+    /// didn't take. That's broken, wherever the Mac is, so it stays a failure.
+    func testAShareThatRefusesIsAFailure() async throws {
+        for status in [ENOENT, EAUTH, -128] {
+            let engine = BackupEngine(
+                timing: fast, mountShare: { _, _ in status },
+                command: FakeCommands { _, _ in .ok() }.runner)
+            nonisolated(unsafe) let log = try runLog()
+            do {
+                try await engine.ensureMount(share, log)
+                XCTFail("Expected the reconnect to fail")
+            } catch let error as BackupError {
+                XCTAssertFalse(error.outOfReach, "\(status)")
+                XCTAssertEqual(error.kind, .setupFailed)
+            }
+        }
+    }
+
+    func testAMalformedShareURLIsASetupFailure() async throws {
+        let broken = Destination(
+            path: "/Volumes/Photos/Backup", isNetwork: true,
+            smbURL: "smb://nas.local/Photos\nx", mountPoint: "/Volumes/Photos")
+        let engine = BackupEngine(
+            timing: fast, mountShare: { _, _ in 0 },
+            command: FakeCommands { _, _ in .ok() }.runner)
+        nonisolated(unsafe) let log = try runLog()
+        do {
+            try await engine.ensureMount(broken, log)
+            XCTFail("Expected the reconnect to be refused")
+        } catch let error as BackupError {
+            XCTAssertEqual(error.kind, .setupFailed)
+            XCTAssertFalse(error.outOfReach)
+        }
     }
 
     /// Stop used to wait out the reconnect: up to two minutes of mount script
     /// and a minute of waiting for the share.
     func testStopInterruptsAReconnect() async throws {
-        let commands = FakeCommands { call, stop in
-            guard call.executable == "/usr/bin/osascript" else { return .ok() }
-            // A real child is SIGKILLed by the stop signal; this one notices.
-            for _ in 0..<1000 where stop?.isStopped != true {
-                try? await Task.sleep(for: .milliseconds(10))
-            }
-            return CommandResult(status: 9, stdout: "", stderr: "", timedOut: false)
-        }
-        let engine = BackupEngine(timing: fast, command: commands.runner)
+        let mounting = Mutex(false)
+        let engine = BackupEngine(
+            timing: fast,
+            mountShare: { _, stop in
+                mounting.withLock { $0 = true }
+                for _ in 0..<1000 where !stop.isStopped {
+                    try? await Task.sleep(for: .milliseconds(10))
+                }
+                return ECANCELED
+            },
+            command: FakeCommands { _, _ in .ok() }.runner)
         nonisolated(unsafe) let log = try runLog()
         let started = ContinuousClock.now
         let target = share
         let reconnect = Task { try await engine.ensureMount(target, log) }
-        while !commands.executables.contains("/usr/bin/osascript") {
+        while !mounting.withLock({ $0 }) {
             try await Task.sleep(for: .milliseconds(10))
         }
         await engine.cancel()
@@ -125,6 +189,28 @@ final class EngineTests: XCTestCase {
             XCTAssertEqual(error.kind, .cancelled)
         }
         XCTAssertLessThan(started.duration(to: .now), .seconds(5))
+    }
+
+    /// The real mount, to an address reserved for documentation that never
+    /// answers: Stop ends it at once, rather than after NetFS's minute.
+    func testStopCancelsARealMount() async throws {
+        let stop = StopSignal()
+        let started = ContinuousClock.now
+        let mount = Task { await ShareMount.live("smb://kept-test@192.0.2.1/Nothing", stop) }
+        try await Task.sleep(for: .milliseconds(500))
+        stop.fire()
+        let status = await mount.value
+        XCTAssertEqual(status, ECANCELED)
+        XCTAssertLessThan(started.duration(to: .now), .seconds(5))
+    }
+
+    func testOutOfReachIsOnlyNothingAnswering() {
+        for status in [EHOSTUNREACH, ETIMEDOUT, ENETUNREACH, EHOSTDOWN, ENETDOWN] {
+            XCTAssertTrue(ShareMount.isOutOfReach(status), "\(status)")
+        }
+        for status in [0, ENOENT, EAUTH, EACCES, EPERM, ECONNREFUSED, ECANCELED, -128] {
+            XCTAssertFalse(ShareMount.isOutOfReach(status), "\(status)")
+        }
     }
 
     // MARK: - The export

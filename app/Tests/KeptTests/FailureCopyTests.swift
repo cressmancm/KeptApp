@@ -91,4 +91,25 @@ final class FailureCopyTests: XCTestCase {
     func testLastGoodCopyWithNoSuccessfulRun() {
         XCTAssertEqual(FailureCopy.lastGoodCopy(nil), "No backup has finished yet")
     }
+
+    /// Waiting promises only what Kept does, try again, and names the server
+    /// the user would recognise.
+    func testWaitingForTheShareNamesTheServer() {
+        let server = FailureCopy.shareName(networkDestination)
+        XCTAssertEqual(server, "nas.local")
+        XCTAssertEqual(
+            FailureCopy.shareWaitingCard(server),
+            "Kept can't reach **nas.local** from this network. "
+                + "It tries again when your Mac wakes, and at the next backup.")
+        XCTAssertEqual(
+            FailureCopy.shareStoppedCard(server),
+            "Kept can't reach **nas.local**. If you're away, it catches up when you're back. "
+                + "If not, check that it's on and connected.")
+    }
+
+    func testTheServerNameIsEscaped() {
+        let odd = Destination(
+            path: "/Volumes/P/B", isNetwork: true, smbURL: "smb://*nas*/P", mountPoint: "/Volumes/P")
+        XCTAssertEqual(FailureCopy.shareName(odd), "\\*nas\\*")
+    }
 }

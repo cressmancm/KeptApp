@@ -8,9 +8,14 @@ struct BackupError: Error, CustomStringConvertible {
     /// Classified at the throw site so the UI can explain the failure without
     /// pattern-matching on the message text.
     let kind: FailureKind
-    init(_ message: String, kind: FailureKind) {
+    /// Nothing answered at the share's address: the Mac isn't on the NAS's
+    /// network, or the NAS is off. An unattended backup waits instead of
+    /// failing (see ShareMount).
+    let outOfReach: Bool
+    init(_ message: String, kind: FailureKind, outOfReach: Bool = false) {
         self.message = message
         self.kind = kind
+        self.outOfReach = outOfReach
     }
     var description: String { message }
 }
@@ -64,6 +69,8 @@ actor BackupEngine {
     private let systemLibrary: @Sendable () -> String?
     /// Whether the bundle is intact (AppSeal), injectable for tests.
     private let appSeal: @Sendable (URL) -> Bool?
+    /// Reconnects the share, injectable for tests.
+    private let mountShare: ShareMount.Mounter
     private let exportDatabase: String
     private let stop = StopSignal()
     /// Every call that touches the backup folder and can block on a share that
@@ -88,10 +95,12 @@ actor BackupEngine {
         exportDatabase: String = Config.exportDBURL.path,
         helper: URL? = Bundle.main.executableURL,
         appSeal: @escaping @Sendable (URL) -> Bool? = { AppSeal.isIntact($0) },
+        mountShare: @escaping ShareMount.Mounter = ShareMount.live,
         command: CommandRunner? = nil
     ) {
         self.helper = helper
         self.appSeal = appSeal
+        self.mountShare = mountShare
         self.timing = timing
         self.pythonOverride = python
         self.exportGuardOverride = exportGuard
@@ -307,6 +316,18 @@ actor BackupEngine {
             record.outcome = .cancelled
             record.message = "Cancelled"
             record.failureKind = .cancelled
+        } catch let error as BackupError where error.outOfReach && trigger != .manual {
+            // Away from home, the usual reason, and not a failure: nothing
+            // was tried. No notification, no retry, and the failed glyph
+            // only once the daily check's threshold says backups have
+            // stopped. Back Up Now still fails, since someone is waiting on
+            // it.
+            runLog.log("\(error.message) Kept will try again later.")
+            record.end = .now
+            record.outcome = .skipped
+            record.deferral = .shareAway
+            record.message = "Skipped. \(error.message)"
+            return Self.saveDeferral(record, runLog)
         } catch {
             let message = (error as? BackupError)?.message ?? error.localizedDescription
             runLog.log("FAILED: \(message)")
@@ -338,6 +359,17 @@ actor BackupEngine {
             try RunHistory.upsert(record)
         } catch {
             runLog?.log("Couldn't save this backup to the history: \(error.localizedDescription)")
+        }
+    }
+
+    /// Writes a deferral, folded into the one before it when that was the
+    /// same wait, and returns what was saved.
+    private static func saveDeferral(_ record: RunRecord, _ runLog: RunLog?) -> RunRecord {
+        do {
+            return try RunHistory.upsertDeferral(record)
+        } catch {
+            runLog?.log("Couldn't save this backup to the history: \(error.localizedDescription)")
+            return record
         }
     }
 
@@ -501,22 +533,28 @@ actor BackupEngine {
         guard Destination.isWellFormedSMBURL(smbURL) else {
             throw BackupError(
                 "Refusing to mount a malformed share URL; re-select the backup folder",
-                kind: .volumeUnreachable)
+                kind: .setupFailed)
         }
         runLog.log("Mounting \(smbURL)")
-        // `mount volume` reuses the credential saved in the Keychain when the
-        // user first connected to the share in Finder.
-        //
-        // The URL is passed as an argument and read back out of `argv`, never
-        // spliced into the script text. Interpolating it would let a quote in
-        // the stored URL close the string literal and append AppleScript —
-        // which `do shell script` turns into arbitrary code running as a child
-        // of this app, inheriting its Photos and network-volume TCC grants.
-        let mountResult = await command(
-            "/usr/bin/osascript", Self.mountScriptArguments(smbURL), 120, stop)
+        // Signs in with the password saved in the Keychain when the share was
+        // first opened in Finder, and shows nothing if it can't (ShareMount).
+        let status = await mountShare(smbURL, stop)
         try throwIfStopped()
-        if !mountResult.stderr.isEmpty {
-            runLog.appendRaw(mountResult.stderr.trimmingCharacters(in: .newlines))
+        if status != 0 {
+            runLog.log("Couldn't mount \(smbURL): \(ShareMount.describe(status)).")
+            let server = dest.serverName ?? dest.displayName
+            if ShareMount.isOutOfReach(status) {
+                throw BackupError(
+                    "Couldn't reach \(server) from this network.", kind: .volumeUnreachable,
+                    outOfReach: true)
+            }
+            // Something answered and refused: a share that's gone, or a
+            // password it didn't take. Shown as it is, since "check that it's
+            // on and connected" would send the user to the wrong place.
+            throw BackupError(
+                "\(server) answered, but Kept couldn't open “\(dest.displayName)”. "
+                    + "Check that you can open it in Finder.",
+                kind: .setupFailed)
         }
 
         let clock = ContinuousClock()
@@ -541,23 +579,6 @@ actor BackupEngine {
         }
         runLog.log(
             "Mounted and healthy after \(started.duration(to: clock.now).components.seconds)s.")
-    }
-
-    /// The reconnect, as `osascript` arguments.
-    ///
-    /// A bare `mount volume`, not `tell application "Finder"`: it's a
-    /// scripting-addition command that runs inside osascript and sends no
-    /// Apple Event, so it needs no Automation permission, and Kept no
-    /// apple-events entitlement. Verified 2026-10-13: Kept had never appeared
-    /// under Automation, and a build without the entitlement reconnected an
-    /// ejected share in under a second.
-    static func mountScriptArguments(_ smbURL: String) -> [String] {
-        [
-            "-e", "on run argv",
-            "-e", "mount volume (item 1 of argv)",
-            "-e", "end run",
-            "--", smbURL,
-        ]
     }
 
     // MARK: - Free space
