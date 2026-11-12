@@ -8,7 +8,7 @@
 
 My parents gave me my first camera when I was 8, and my photo library has been my most prized possession ever since: close to 40,000 photos and videos, spanning more than three decades. Losing it would be devastating.
 
-I'm all in on Apple Photos, and iCloud keeps my library synced and backed up. But if Apple ever made a mistake, like bungling an encryption key, I could lose access to all of it at once. I wanted a second copy that didn't depend on anyone's proprietary storage.
+I'm all in on Apple Photos, and iCloud keeps my library synced and backed up. But if Apple ever made a mistake, like wrongly locking my account, I could lose access to all of it at once. I wanted a second copy that didn't depend on anyone's proprietary storage.
 
 I looked at online backup services, but I already had a NAS with terabytes of free space, so I decided to build something myself. I found the incredible [osxphotos](https://github.com/RhetTbull/osxphotos), which handles the actual copying, so the plan was simple: wrap it in a menubar app that backs up my library on a schedule. It was also a chance to try my hand at agentic coding, so I built Kept with [Claude Code](https://claude.com/claude-code) as my partner, and I'm proud of what we made together.
 
