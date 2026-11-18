@@ -71,7 +71,7 @@ enum FailureCopy {
         case .cancelled:
             return .authored("You stopped the last backup.")
         case .libraryAccess:
-            return .authored("Kept can't read your Photos library. Turn on Full Disk Access for Kept.")
+            return .authored("Kept can't read your Photos library. Allow Kept Full Access to Photos.")
         case .setupFailed, nil:
             guard let rawMessage else {
                 return .authored("The backup didn't finish. Open the log for details.")

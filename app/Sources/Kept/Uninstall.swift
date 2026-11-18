@@ -12,7 +12,7 @@ import ServiceManagement
 /// bundle they refer to is still there for the system to resolve.
 ///
 /// It removes it for the account running it, and only that account. Full Disk
-/// Access and network-volume access are granted to the app for the whole Mac,
+/// Access, from an earlier Kept, is granted to the app for the whole Mac,
 /// and Kept.app in /Applications is shared too, so taking either away here
 /// would break Kept for every other account that uses it. The summary says
 /// what was left and why.
@@ -63,8 +63,9 @@ enum Uninstall {
     /// app is gone, so "remove it there" pointed at nothing, and a reinstall
     /// found Full Disk Access already on (2026-10-06).
     ///
-    /// While Kept.app stays for other accounts, nothing is reset. Kept's one
-    /// grant, Full Disk Access, belongs to the whole Mac: `tccutil reset All`
+    /// While Kept.app stays for other accounts, nothing is reset. Full Disk
+    /// Access, which a Mac set up with an earlier Kept may still have, belongs
+    /// to the whole Mac: `tccutil reset All`
     /// from a standard test account cleared it and silently broke the main
     /// account's nightly backup (2026-10-05). Kept used to reset Automation
     /// there, as the one grant macOS keeps per account, but Kept never needs
@@ -266,7 +267,7 @@ enum Uninstall {
             // it whole, so it works through open folders and never a link
             // (NoFollow). Listing and deleting by path followed a link: with
             // Application Support/Kept pointing at ~/Documents, keeping the
-            // index would have emptied Documents, with Full Disk Access.
+            // index would have emptied Documents, with Kept's access.
             let parentPath = url.deletingLastPathComponent().path
             guard let parent = try? NoFollow.openRoot(parentPath) else { return }
             defer { close(parent) }

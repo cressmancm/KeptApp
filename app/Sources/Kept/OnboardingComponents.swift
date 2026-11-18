@@ -89,7 +89,7 @@ struct OnboardingButton: View {
     }
 }
 
-/// Position in the flow, one dot per screen. Shown on the Full Disk Access and
+/// Position in the flow, one dot per screen. Shown on the Photos access and
 /// folder screens; the welcome and done screens carry their own buttons instead and
 /// deliberately have no dots.
 struct OnboardingPageDots: View {

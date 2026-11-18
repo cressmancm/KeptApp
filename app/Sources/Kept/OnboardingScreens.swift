@@ -12,7 +12,7 @@ struct WelcomeScreen: View {
 
     /// The setup steps, in the order the flow takes them.
     private static let steps = [
-        "Turn on Full Disk Access",
+        "Allow access to Photos",
         "Choose a backup folder",
     ]
 
@@ -112,77 +112,82 @@ private struct NumberedStepRow: View {
     }
 }
 
-// MARK: - 2 · Full Disk Access
+// MARK: - 2 · Photos access
 
-struct FullDiskAccessScreen: View {
+struct PhotosAccessScreen: View {
     let controller: BackupController
     let footer: OnboardingFooter
 
-    /// What the live check last found. `unknown` is a library kept somewhere
-    /// other than ~/Pictures, where there is no file to test — the screen says
-    /// nothing then rather than guess.
-    private enum Access { case checking, granted, missing, unknown }
-    @State private var access = Access.checking
+    /// Whether Kept can read the library, as the live check last found. nil
+    /// is a library kept somewhere other than ~/Pictures, where there is no
+    /// file to test, or not checked yet: the screen says nothing then
+    /// rather than guess.
+    @State private var canRead: Bool?
 
     var body: some View {
-        // Nothing is requested here, because nothing can be: macOS never
-        // prompts for Full Disk Access. The screen's job is to get the user to
-        // the switch, and then to show them it worked.
         PermissionScreen(
             symbol: "photo.on.rectangle.angled",
-            title: "Turn on Full Disk Access",
+            title: "Allow access to Photos",
             message: """
-                macOS won't ask for this one. Turn it on yourself so Kept can read \
-                your library. Kept never changes or uploads your photos.
+                Kept reads your library to copy it. It never changes or uploads \
+                your photos.
                 """,
-            cardHeader: "IN SYSTEM SETTINGS",
+            cardHeader: "WHEN MACOS ASKS",
             footer: footer
         ) {
-            SettingsPaneIllustration()
+            PhotosPromptIllustration()
         } annotation: {
-            AnnotationLine(Text("\(AnnotationLine.arrow) Switch on **Kept**."))
-            AnnotationLine(Text("Not listed? Click **+** and add Kept from Applications."))
-            AnnotationLine(Text("If asked to quit Kept, choose **Later**."))
+            AnnotationLine(Text("\(AnnotationLine.arrow) Choose **Allow Full Access**."))
+            AnnotationLine(Text("With Limited Access, Kept can't back up your library."))
         } accessory: {
             HStack(spacing: 10) {
-                AccessStatusLine(
-                    granted: access == .granted ? true : access == .missing ? false : nil)
+                AccessStatusLine(canRead: canRead, permission: controller.photosPermission)
                 Spacer(minLength: 8)
-                OnboardingButton(
-                    "Open Full Disk Access…", kind: .secondary, size: 12,
-                    horizontalPadding: 12, verticalPadding: 4
-                ) {
-                    controller.openFullDiskAccessSettings()
+                if canRead != true {
+                    OnboardingButton(
+                        controller.photosPermission == .notAsked
+                            ? "Allow Access…" : "Open Photos Settings…",
+                        kind: controller.photosPermission == .notAsked ? .primary : .secondary,
+                        size: 12, horizontalPadding: 12, verticalPadding: 4
+                    ) {
+                        controller.allowPhotosAccess()
+                    }
                 }
             }
         }
-        // Re-checked while the screen is up, so flipping the switch in System
-        // Settings shows up here without the user doing anything else. The
-        // check is a child process, which is also why "Later" is safe: a fresh
-        // process sees the new grant without Kept being relaunched. Cancelled
-        // with the screen.
+        // Re-checked while the screen is up, so a change in System Settings
+        // shows up here without the user doing anything else. The read is a
+        // child process, so it sees a new grant without Kept being
+        // relaunched. Cancelled with the screen.
         .task {
             while !Task.isCancelled {
-                switch await controller.canReadLibrary() {
-                case true?: access = .granted
-                case false?: access = .missing
-                case nil: access = .unknown
-                }
+                canRead = await controller.canReadLibrary()
                 try? await Task.sleep(for: .seconds(2))
             }
         }
     }
 }
 
-/// "Access is on" / "Waiting for access…", or nothing when there is no verdict.
+/// "Access is on", or why it isn't. Nothing before Kept has asked.
 private struct AccessStatusLine: View {
-    let granted: Bool?
+    let canRead: Bool?
+    let permission: LibraryAccess.Permission
+
+    private var line: (text: String, granted: Bool)? {
+        if canRead == true { return ("Access is on", true) }
+        switch permission {
+        case .notAsked: return nil
+        case .limited: return ("Kept has Limited Access. Choose Full Access.", false)
+        case .denied: return ("Access is off", false)
+        case .granted: return canRead == false ? ("Kept can't read your library", false) : nil
+        }
+    }
 
     var body: some View {
-        if let granted {
+        if let line {
             HStack(spacing: 6) {
-                Circle().fill(granted ? Color.green : Color.orange).frame(width: 6, height: 6)
-                Text(granted ? "Access is on" : "Waiting for access…")
+                Circle().fill(line.granted ? Color.green : Color.orange).frame(width: 6, height: 6)
+                Text(line.text)
                     .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -263,53 +268,43 @@ private struct AnnotationLine: View {
     }
 }
 
-/// A picture of the Full Disk Access list in System Settings with Kept switched
-/// on — never a working copy of it.
-///
-/// Everything here is drawn. The switch
-/// is two shapes rather than a `Toggle` and the + and − are text, so nothing in
-/// it invites a click that does nothing. The real list is one button away.
-private struct SettingsPaneIllustration: View {
+/// A picture of macOS's Photos prompt, with the button to choose
+/// highlighted. Never a working copy of it: everything is drawn, so nothing
+/// in it invites a click that does nothing. The real prompt is one button
+/// away.
+private struct PhotosPromptIllustration: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Full Disk Access")
-                .font(.system(size: 11.5, weight: .semibold))
+        VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 8) {
-                // The app's real icon, so the row matches what the user is
-                // about to look for in the actual list.
+                // The app's real icon, so the picture matches the prompt.
                 Image(nsImage: NSApplication.shared.applicationIconImage)
                     .resizable()
-                    .frame(width: 18, height: 18)
-                Text("Kept")
-                    .font(.system(size: 11.5))
-                Spacer(minLength: 8)
-                drawnSwitch
+                    .frame(width: 22, height: 22)
+                Text("“Kept” would like to access your Photos library.")
+                    .font(.system(size: 11, weight: .semibold))
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 7)
-            .background(OnboardingMetrics.cardFill, in: RoundedRectangle(cornerRadius: 6))
-            Text("+    −")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .padding(.leading, 5)
+            HStack(spacing: 6) {
+                drawnButton("Limited Access…", highlighted: false)
+                drawnButton("Allow Full Access", highlighted: true)
+            }
         }
         .illustrationSurface(
-            padding: EdgeInsets(top: 13, leading: 14, bottom: 11, trailing: 14),
+            padding: EdgeInsets(top: 12, leading: 13, bottom: 12, trailing: 13),
             alignment: .leading)
     }
 
-    /// On, in the accent colour, the way System Settings draws it.
-    private var drawnSwitch: some View {
-        Capsule()
-            .fill(Color.accentColor)
-            .frame(width: 26, height: 15)
-            .overlay(alignment: .trailing) {
-                Circle()
-                    .fill(.white)
-                    .frame(width: 13, height: 13)
-                    .padding(1)
-                    .shadow(color: .black.opacity(0.15), radius: 0.5, y: 0.5)
-            }
+    private func drawnButton(_ title: String, highlighted: Bool) -> some View {
+        Text(title)
+            .font(.system(size: 10.5, weight: highlighted ? .semibold : .regular))
+            .foregroundStyle(highlighted ? Color.white : Color.primary)
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity)
+            .background(
+                highlighted ? Color.accentColor : OnboardingMetrics.controlFill,
+                in: RoundedRectangle(cornerRadius: 6))
     }
 }
 

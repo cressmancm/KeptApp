@@ -23,11 +23,11 @@ struct BackupError: Error, CustomStringConvertible {
 /// The backup itself:
 ///   1. single-instance lock
 ///   2. housekeeping (log pruning, yearly report rotation)
-///   3. library access (Full Disk Access)
+///   3. library access (the Photos permission, with Full Access)
 ///   4. mount with zombie-mount detection and force-remount
 ///   5. expiry of "Removed from Photos" folders past the retention setting
 ///   6. free-space check
-///   7. the Photos library: the System Photo Library, checked against the
+///   7. the Photos library: the one in Pictures, checked against the
 ///      backup so a different or empty one can't retire it (PhotosLibrary)
 ///   8. osxphotos incremental mirror export, relaunched once on failure;
 ///      files it would delete are moved to "Removed from Photos" instead
@@ -67,6 +67,8 @@ actor BackupEngine {
     private let workingDirectory: URL
     private let appBundle: URL
     private let systemLibrary: @Sendable () -> String?
+    /// The library in Pictures, injectable so tests never find the real one.
+    private let picturesLibrary: String
     /// Whether the bundle is intact (AppSeal), injectable for tests.
     private let appSeal: @Sendable (URL) -> Bool?
     /// Reconnects the share, injectable for tests.
@@ -92,6 +94,7 @@ actor BackupEngine {
         workingDirectory: URL = Config.appSupportDir,
         appBundle: URL = Bundle.main.bundleURL,
         systemLibrary: @escaping @Sendable () -> String? = { PhotosLibrary.systemLibraryPath() },
+        picturesLibrary: String = (Config.defaultPhotosLibrary as NSString).expandingTildeInPath,
         exportDatabase: String = Config.exportDBURL.path,
         helper: URL? = Bundle.main.executableURL,
         appSeal: @escaping @Sendable (URL) -> Bool? = { AppSeal.isIntact($0) },
@@ -107,6 +110,7 @@ actor BackupEngine {
         self.workingDirectory = workingDirectory
         self.appBundle = appBundle
         self.systemLibrary = systemLibrary
+        self.picturesLibrary = picturesLibrary
         self.exportDatabase = exportDatabase
         self.command = command ?? { executable, arguments, timeout, stop in
             await ShellCommand.run(executable, arguments, timeout: timeout, stop: stop)
@@ -377,7 +381,7 @@ actor BackupEngine {
 
     /// First of all, and again right before every launch of Python, the
     /// backup's and Test Library Access's alike: a changed bundle would run
-    /// the change with Full Disk Access (AppSeal). Test Library Access used
+    /// the change with Kept's access to your photos (AppSeal). Test Library Access used
     /// to skip it (production review S4). Off the actor, on a thread of its
     /// own. The check and the launch are still two steps, so a change in
     /// the moment between them isn't caught.
@@ -401,15 +405,15 @@ actor BackupEngine {
 
     // MARK: - Library access
 
-    /// First, before the destination is touched. Without Full Disk Access the
-    /// export dies on its first read, and on 2026-10-06 that surfaced three
-    /// times as "stopped partway" — a cause the user could not act on.
+    /// First, before the destination is touched. Without access the export
+    /// dies on its first read, and on 2026-10-06 that surfaced three times as
+    /// "stopped partway", a cause the user could not act on.
     private func checkLibraryAccess(_ runLog: RunLog) async throws {
         let canRead = await LibraryAccess.canRead(stop: stop)
         try throwIfStopped()
         guard canRead == false else { return }
         throw BackupError(
-            "Can't read \(Config.photosLibraryProbePath): Full Disk Access is off",
+            "Can't read \(Config.photosLibraryProbePath): Kept doesn't have Full Access to Photos",
             kind: .libraryAccess)
     }
 
@@ -467,6 +471,31 @@ actor BackupEngine {
             runLog.log("Refusing to back up: \(mismatch)")
             throw BackupError(mismatch, kind: .setupFailed)
         }
+        // A local folder macOS protects (an external drive, Documents) is
+        // checked the same way a share is in mountIsHealthy.
+        if !dest.isNetwork {
+            let probe = await command("/bin/ls", ["-a", dest.path], timing.probe, stop)
+            try throwIfStopped()
+            if Self.isNotAllowed(probe) { throw notAllowed(dest, runLog) }
+        }
+    }
+
+    /// macOS refused a read of the backup folder. Without Full Disk Access,
+    /// a NAS, an external drive, or a folder in Documents needs its own
+    /// permission, which Kept asks for when the folder is chosen
+    /// (DestinationPicker). Refused, the read fails at once with "Operation
+    /// not permitted", which isn't a share that stopped answering: it mustn't
+    /// be force-unmounted or retried as one.
+    static func isNotAllowed(_ result: CommandResult) -> Bool {
+        result.status != 0 && result.stderr.contains("Operation not permitted")
+    }
+
+    private func notAllowed(_ dest: Destination, _ runLog: RunLog) -> BackupError {
+        runLog.log("macOS refused Kept access to \(dest.path).")
+        return BackupError(
+            "macOS isn't letting Kept open “\(dest.displayName)”. Turn on Kept in "
+                + "System Settings → Privacy & Security → Files & Folders.",
+            kind: .setupFailed)
     }
 
     /// The backup folder's disk didn't answer a call in time, or is still
@@ -480,9 +509,10 @@ actor BackupEngine {
     /// SMB mount hangs or errors on reads while still showing up in `mount`,
     /// so the probe is a child process that gets SIGKILLed on timeout.
     private func mountIsHealthy(
-        _ mountPoint: String, _ runLog: RunLog, timeout: TimeInterval
-    ) async -> Bool {
+        _ mountPoint: String, _ dest: Destination, _ runLog: RunLog, timeout: TimeInterval
+    ) async throws -> Bool {
         let probe = await command("/bin/ls", [mountPoint], timeout, stop)
+        if Self.isNotAllowed(probe) { throw notAllowed(dest, runLog) }
         if probe.timedOut {
             runLog.log("Mount probe hung for \(Int(timeout))s.")
             return false
@@ -498,7 +528,7 @@ actor BackupEngine {
     func ensureMount(_ dest: Destination, _ runLog: RunLog) async throws {
         guard let mountPoint = dest.mountPoint, let smbURL = dest.smbURL else {
             // Network volume we can't remount (AFP/NFS). If it reads, proceed.
-            let healthy = await mountIsHealthy(dest.path, runLog, timeout: timing.probe)
+            let healthy = try await mountIsHealthy(dest.path, dest, runLog, timeout: timing.probe)
             try throwIfStopped()
             if healthy { return }
             throw BackupError(
@@ -508,13 +538,15 @@ actor BackupEngine {
         let mounted = await isMounted(mountPoint)
         try throwIfStopped()
         if mounted {
-            if await mountIsHealthy(mountPoint, runLog, timeout: timing.probe) { return }
+            if try await mountIsHealthy(mountPoint, dest, runLog, timeout: timing.probe) { return }
             try throwIfStopped()
             // A NAS whose disks were asleep can take longer than the first
             // probe allows to answer. Force-unmounting it then turned a slow
             // wake-up into a failed backup, so it gets one longer try first.
             runLog.log("Share didn't answer; trying again for \(Int(timing.slowProbe))s.")
-            if await mountIsHealthy(mountPoint, runLog, timeout: timing.slowProbe) { return }
+            if try await mountIsHealthy(mountPoint, dest, runLog, timeout: timing.slowProbe) {
+                return
+            }
             try throwIfStopped()
             runLog.log("Share is mounted but stale; force-unmounting.")
             let unmount = await command(
@@ -571,7 +603,7 @@ actor BackupEngine {
         }
         // The longer probe: a share that was just mounted may still be waking
         // its disks.
-        let healthy = await mountIsHealthy(mountPoint, runLog, timeout: timing.slowProbe)
+        let healthy = try await mountIsHealthy(mountPoint, dest, runLog, timeout: timing.slowProbe)
         try throwIfStopped()
         guard healthy else {
             throw BackupError(
@@ -674,23 +706,33 @@ actor BackupEngine {
         var cleanup: Bool
     }
 
-    /// The System Photo Library, checked against the backup before anything
-    /// in the backup can be set aside. See PhotosLibrary.
+    /// The library Kept backs up: the one in Pictures, where Photos puts
+    /// it. Only when there's none there does Kept look up the System Photo
+    /// Library, where macOS records it (PhotosLibrary).
     ///
-    /// After the access check, which this needs: where macOS records the
-    /// System Photo Library takes Full Disk Access to read.
+    /// That record is in the Photos app's own data. Reading it takes Full
+    /// Disk Access, or Kept's Photos switch under Files & Folders, and
+    /// without either macOS refuses it and posts "Data Access Blocked" (seen
+    /// 2026-11-18). Most Macs have their library in Pictures, so they never
+    /// touch it. Naming the library in Pictures stays safe with two
+    /// libraries: osxphotos copies the library it's given, and a different
+    /// or empty one is caught by the overlap check below, before anything in
+    /// the backup can be set aside.
+    func libraryToBackUp() -> String? {
+        FileManager.default.fileExists(atPath: picturesLibrary) ? picturesLibrary : systemLibrary()
+    }
+
+    static let noLibraryInPictures = BackupError(
+        "Kept backs up the Photos library in your Pictures folder, and there isn't one there. "
+            + "If yours is somewhere else, turn on Full Disk Access for Kept so it can find it.",
+        kind: .setupFailed)
+
+    /// The library, checked against the backup before anything in the backup
+    /// can be set aside. See libraryToBackUp and PhotosLibrary.
     func checkPhotosLibrary(_ dest: Destination, _ runLog: RunLog) async throws -> ExportSource {
-        let fallback = (Config.defaultPhotosLibrary as NSString).expandingTildeInPath
-        let library: String
-        if let system = systemLibrary() {
-            library = system
-        } else if FileManager.default.fileExists(atPath: fallback) {
-            runLog.log("macOS didn't say which library is the System Photo Library; using \(fallback).")
-            library = fallback
-        } else {
-            throw BackupError(
-                "Kept can't tell which Photos library to back up. Open Photos, then try again.",
-                kind: .setupFailed)
+        guard let library = libraryToBackUp() else { throw Self.noLibraryInPictures }
+        if library != picturesLibrary {
+            runLog.log("No library in Pictures; using the System Photo Library.")
         }
         let name = PhotosLibrary.displayName(library)
         runLog.log("Photos library: \(library)")
@@ -728,10 +770,10 @@ actor BackupEngine {
                 + "\(overlap.backedUp) photos in the backup are in it.")
         guard !overlap.isDifferentLibrary else {
             let message = overlap.inLibrary == 0
-                ? "Your System Photo Library, “\(name)”, has no photos, so Kept left your backup "
+                ? "Your Photos library “\(name)” has no photos, so Kept left your backup "
                     + "as it was. To back it up anyway, choose your backup folder again in Settings."
                 : "Only \(overlap.shared.formatted()) of the \(overlap.backedUp.formatted()) photos "
-                    + "in your backup are in your System Photo Library, “\(name)”, so Kept left "
+                    + "in your backup are in your Photos library “\(name)”, so Kept left "
                     + "your backup as it was. To back up “\(name)” from now on, choose your backup "
                     + "folder again in Settings."
             throw BackupError(message, kind: .setupFailed)
@@ -1128,6 +1170,7 @@ actor BackupEngine {
         guard let python, let exportGuard else {
             return "Part of Kept is missing. Reinstall it."
         }
+        guard let library = libraryToBackUp() else { return Self.noLibraryInPictures.message }
         do {
             try await checkOwnFiles(nil)
         } catch let error as BackupError {
@@ -1146,6 +1189,10 @@ actor BackupEngine {
                 "--limit", "5",
                 "--exportdb", tempDir.appending(path: "test-export.db").path,
                 "--verbose",
+                // The library a backup copies. Left to itself, osxphotos
+                // looks it up in the Photos app's data, which macOS refuses
+                // without Full Disk Access (libraryToBackUp).
+                "--library", library,
             ],
             timeout: 900,
             environment: ChildEnvironment.sanitized())

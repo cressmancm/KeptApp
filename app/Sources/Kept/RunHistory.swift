@@ -37,8 +37,9 @@ enum FailureKind: String, Codable, Sendable {
     case exportFailed
     case cancelled
     case setupFailed
-    /// Kept couldn't read the Photos library, almost always because Full Disk
-    /// Access is off. Found before the export starts, so nothing was copied.
+    /// Kept couldn't read the Photos library, almost always because it
+    /// doesn't have Full Access to Photos. Found before the export starts, so
+    /// nothing was copied.
     case libraryAccess
 }
 

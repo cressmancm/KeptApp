@@ -13,7 +13,7 @@ enum DestinationPicker {
     /// or system folder, a Photos library or a whole cloud drive, that loses
     /// someone's files, so those are refused outright rather than warned
     /// about. A folder with files in it gets a warning.
-    static func choose(current: Destination?, retentionDays: Int) -> Destination? {
+    static func choose(current: Destination?, retentionDays: Int) async -> Destination? {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -22,6 +22,13 @@ enum DestinationPicker {
         panel.message = "Choose a folder for your backup."
         NSApp.activate(ignoringOtherApps: true)
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
+
+        // Before anything reads the folder: refused, the read below would
+        // find it empty, and a folder with files in it would get no warning.
+        guard await askForAccess(url.path) else {
+            notAllowedAlert(for: url.lastPathComponent).runModal()
+            return nil
+        }
 
         let picked = Destination.from(folder: url)
         if Destination.isUnsafeMirrorRoot(path: picked.path, resolvingLinks: true) {
@@ -46,6 +53,33 @@ enum DestinationPicker {
             guard answer == .alertSecondButtonReturn else { return nil }
         }
         return picked
+    }
+
+    /// Asks macOS for the backup folder's permission now, while someone is
+    /// here to answer. Without Full Disk Access, a folder on a NAS, an
+    /// external drive, or in Documents, Desktop, or Downloads takes its own
+    /// permission, and macOS asks the first time Kept reads it. That used to
+    /// be the 2 AM backup, where nobody answers. The read is a child
+    /// process, judged the way osxphotos will be. Seen 2026-11-18: the
+    /// prompt, then the share listed, written to, and deleted from.
+    ///
+    /// False only when macOS refused. A read that waits out the timeout, or
+    /// fails some other way, is left for the backup to report.
+    static func askForAccess(_ path: String) async -> Bool {
+        let probe = await ShellCommand.run("/bin/ls", ["-a", path], timeout: 300)
+        return !BackupEngine.isNotAllowed(probe)
+    }
+
+    /// macOS refused the folder.
+    static func notAllowedAlert(for name: String) -> NSAlert {
+        let alert = NSAlert()
+        alert.messageText = "Kept can't use “\(name)”"
+        alert.informativeText = "macOS didn't allow Kept to open it. Turn on Kept in "
+            + "System Settings → Privacy & Security → Files & Folders, then choose the "
+            + "folder again."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        return alert
     }
 
     /// The folder couldn't be saved with its seal, because the keychain is

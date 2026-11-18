@@ -93,7 +93,7 @@ enum PreviewScenario: String, CaseIterable, Identifiable, Sendable {
     var note: String {
         switch self {
         case .firstRun: "The first-run panel, before a destination exists."
-        case .accessBlocked: "The paused panel with its Full Disk Access step."
+        case .accessBlocked: "The paused panel, asking for Photos access."
         case .readyNoRuns: "Destination set, no history — the neutral status row."
         case .healthy: "The everyday panel, with a week of good backups."
         case .healthyLongGap: "Same panel, stale copy. Nothing recent in the list."

@@ -34,9 +34,9 @@ final class FailureCopyTests: XCTestCase {
     func testMissingLibraryAccessNamesTheFix() {
         let copy = FailureCopy.message(
             kind: .libraryAccess,
-            rawMessage: "Can't read /Users/me/Pictures/…/Photos.sqlite: Full Disk Access is off",
+            rawMessage: "Can't read /Users/me/Pictures/…/Photos.sqlite: Kept doesn't have Full Access to Photos",
             destination: networkDestination, failedAt: nil)
-        XCTAssertTrue(copy.plainText.contains("Full Disk Access"), copy.text)
+        XCTAssertTrue(copy.plainText.contains("Full Access to Photos"), copy.text)
         XCTAssertFalse(copy.text.contains("Photos.sqlite"), copy.text)
     }
 

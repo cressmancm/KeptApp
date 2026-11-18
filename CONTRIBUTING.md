@@ -14,12 +14,12 @@ Open `app/Kept.xcodeproj` and use the **Kept** scheme: Run (⌘R) builds and ope
 
 The project uses Xcode's synchronized folders: the **Kept** target builds everything in `app/Sources/Kept`, and **KeptTests** everything in `app/Tests/KeptTests`, so a new file needs no project edit. The app icon is the asset catalog in `Sources/Kept/Assets.xcassets`; after changing the artwork in `app/icon`, run `./make-icon.sh --asset-catalog`.
 
-**Signing.** Out of the box the project signs to run locally, which works but changes with every build, so Full Disk Access would need turning on after each one. Copy `app/Signing.local.xcconfig.example` to `app/Signing.local.xcconfig` (git ignores it) and fill it in:
+**Signing.** Out of the box the project signs to run locally, which works but changes with every build, so macOS would ask for Photos access again after each one. Copy `app/Signing.local.xcconfig.example` to `app/Signing.local.xcconfig` (git ignores it) and fill it in:
 
 - **With an Apple Developer team,** put in your team ID. Xcode signs with your Apple Development certificate and makes its own provisioning profile, and the hardened runtime stays on.
 - **Without one,** run `./make-cert.sh` and use the "Kept Dev" lines. A self-signed certificate has no Team ID, so these builds go without the hardened runtime, which would otherwise refuse Xcode's debug library and the tests.
 
-**What Run does to your installed Kept.** Xcode's build is another copy of Kept with the same identifier. Opening it quits the Kept in /Applications, unless that one is mid-backup, and both share the same settings, history, and backup folder. When you're done, open your usual copy again, so the daily check points at it. A build signed differently from that copy needs Full Disk Access turned on for it separately.
+**What Run does to your installed Kept.** Xcode's build is another copy of Kept with the same identifier. Opening it quits the Kept in /Applications, unless that one is mid-backup, and both share the same settings, history, and backup folder. When you're done, open your usual copy again, so the daily check points at it. A build signed differently from that copy needs its own Photos access.
 
 **Tests in Xcode run inside the app,** as Xcode does for any app. `main.swift` notices and starts nothing of Kept's own, so a test run never quits your Kept or starts a backup. Two tests skip there: the `--hold-removed` one, which needs the test runner to have a parent process to inspect, and whichever of the two keychain-store tests doesn't match how the app is signed.
 
@@ -78,13 +78,13 @@ To start over, use Settings → Advanced → Remove Kept…, which removes all o
 
 ## Signing, and why it matters here
 
-Kept reads the Photos library as files, which needs Full Disk Access. macOS ties that grant to the app's signature, so the signature has to stay the same from build to build:
+Kept reads the Photos library as files, which macOS allows with the Photos permission's Full Access. The signature declares that it uses Photos (`app-entitlements.plist`): under the hardened runtime, an app that doesn't is refused without macOS asking. macOS ties the grant to the app's signature, so the signature has to stay the same from build to build:
 
 - **A Developer ID**, if you have one, is used automatically, and its builds match the published releases. With its provisioning profile saved as `app/Kept.provisionprofile`, the seal key goes into the data-protection keychain. Without the profile, `build.sh` refuses: the seal key would go into the login keychain, which releases don't trust, so the next release would ask for the backup folder again. It prints where Xcode keeps a copy, if it has one.
-- **The self-signed "Kept Dev" certificate** works the same way for your own builds. Without a profile, the seal key lives in the login keychain.
-- **Ad-hoc signing** changes with every build, so Full Disk Access has to be granted again each time. Fine for CI, painful otherwise.
+- **The self-signed "Kept Dev" certificate** keeps the signature stable for your own builds. Without a profile, the seal key lives in the login keychain. A certificate with no Team ID may be refused the Photos permission without macOS asking. Kept reads the library only with that permission, so if your build is refused, sign it with a Developer ID.
+- **Ad-hoc signing** changes with every build, so access has to be granted again each time. Fine for CI, painful otherwise.
 
-Switching between identities resets Full Disk Access and the seal once.
+Switching between identities resets Kept's permissions and the seal once.
 
 Only the maintainer can produce releases. Notarizing needs the Developer ID, its provisioning profile, and the notarization credentials. See [RELEASING.md](RELEASING.md).
 

@@ -124,12 +124,17 @@ final class PhotosLibraryTests: XCTestCase {
         return library.path
     }
 
-    private func engine(library: String?, sqlite: CommandResult) -> (BackupEngine, FakeCommands) {
+    /// `pictures` is the library in Pictures; by default there's none, so
+    /// `library`, the System Photo Library, is the one backed up.
+    private func engine(
+        library: String?, pictures: String? = nil, sqlite: CommandResult
+    ) -> (BackupEngine, FakeCommands) {
         let commands = FakeCommands { call, _ in
             call.executable == "/usr/bin/sqlite3" ? sqlite : .ok()
         }
         let engine = BackupEngine(
             systemLibrary: { library },
+            picturesLibrary: pictures ?? scratch.appending(path: "Pictures/none.photoslibrary").path,
             exportDatabase: scratch.appending(path: "export.db").path,
             command: commands.runner)
         return (engine, commands)
@@ -207,6 +212,38 @@ final class PhotosLibraryTests: XCTestCase {
             XCTAssertTrue(error.message.contains("can't find your Photos library “Unplugged”"))
         }
         XCTAssertFalse(commands.executables.contains("/usr/bin/sqlite3"))
+    }
+
+    /// The library in Pictures is backed up without looking up the System
+    /// Photo Library: that record is in the Photos app's data, and reading it
+    /// without Full Disk Access posts "Data Access Blocked".
+    func testTheLibraryInPicturesComesFirst() async throws {
+        let pictures = try libraryOnDisk("Photos Library")
+        nonisolated(unsafe) var looked = false
+        let commands = FakeCommands { call, _ in
+            call.executable == "/usr/bin/sqlite3" ? .ok("10|10|10\n") : .ok()
+        }
+        let engine = BackupEngine(
+            systemLibrary: { looked = true; return "/Volumes/Photos/Family.photoslibrary" },
+            picturesLibrary: pictures,
+            exportDatabase: scratch.appending(path: "export.db").path,
+            command: commands.runner)
+        nonisolated(unsafe) let log = try runLog()
+        let source = try await engine.checkPhotosLibrary(folder, log)
+        XCTAssertEqual(source, BackupEngine.ExportSource(library: pictures, cleanup: true))
+        XCTAssertFalse(looked)
+    }
+
+    func testNoLibraryAnywhereIsSaidPlainly() async throws {
+        let (engine, _) = engine(library: nil, sqlite: .ok("1|1|1\n"))
+        nonisolated(unsafe) let log = try runLog()
+        do {
+            _ = try await engine.checkPhotosLibrary(folder, log)
+            XCTFail("No library was accepted")
+        } catch let error as BackupError {
+            XCTAssertEqual(error.kind, .setupFailed)
+            XCTAssertTrue(error.message.contains("there isn't one there"), error.message)
+        }
     }
 
     // MARK: - What osxphotos is told

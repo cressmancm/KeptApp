@@ -7,7 +7,7 @@ import Security
 /// The bundled Python is hundreds of ordinary files in a bundle the user
 /// owns, and Python doesn't check signatures: it runs whatever `.py` it finds.
 /// Anything running as the user could edit one, and the next Python Kept
-/// started would run that edit with Kept's Full Disk Access. Making the files
+/// started would run that edit with Kept's access to your photos. Making the files
 /// read-only wouldn't help, since their owner can make them writable again.
 /// The signature covers every file in the bundle, though, so the engine
 /// checks it before every launch of Python (about 0.7 seconds) and refuses to

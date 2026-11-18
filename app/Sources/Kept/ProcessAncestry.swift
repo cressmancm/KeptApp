@@ -7,7 +7,7 @@ import Foundation
 /// started: Kept → python3 → /bin/sh → Kept. macOS judges a process's privacy
 /// access by the app responsible for it, so the same command started any
 /// other way — by launchd, from a LaunchAgent anyone running as this user can
-/// write — runs with Kept's own Full Disk Access. Requiring a running copy of
+/// write — runs with Kept's own access to your photos. Requiring a running copy of
 /// this very executable somewhere above it closes that door: an outside
 /// process cannot put one there, because Kept never runs a caller's command.
 enum ProcessAncestry {

@@ -104,6 +104,56 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(calls.last, "/bin/ls")
     }
 
+    /// Without Full Disk Access a share takes its own permission. Refused,
+    /// the probe fails at once with "Operation not permitted": that's a
+    /// permission to turn on, not a stale share to force off and remount.
+    func testARefusedShareIsAPermissionProblemNotAStaleOne() async throws {
+        let commands = FakeCommands { call, _ in
+            switch call.executable {
+            case "/sbin/mount": .ok(Self.mountedLine)
+            case "/bin/ls": .failed("ls: /Volumes/Photos: Operation not permitted")
+            default: .ok()
+            }
+        }
+        let engine = BackupEngine(timing: fast, command: commands.runner)
+        nonisolated(unsafe) let log = try runLog()
+        do {
+            try await engine.ensureMount(share, log)
+            XCTFail("Expected the refused share to fail")
+        } catch let error as BackupError {
+            XCTAssertEqual(error.kind, .setupFailed)
+            XCTAssertFalse(error.outOfReach)
+            XCTAssertTrue(error.message.contains("Files & Folders"), error.message)
+        }
+        XCTAssertEqual(commands.executables, ["/sbin/mount", "/bin/ls"])
+    }
+
+    /// An external drive, or a folder in Documents, refused the same way.
+    func testARefusedLocalFolderIsAPermissionProblem() async throws {
+        let folder = scratch.appending(path: "Backup")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let commands = FakeCommands { call, _ in
+            call.executable == "/bin/ls"
+                ? .failed("ls: \(folder.path): Operation not permitted") : .ok()
+        }
+        let engine = BackupEngine(timing: fast, command: commands.runner)
+        nonisolated(unsafe) let log = try runLog()
+        do {
+            try await engine.ensureDestinationReady(Destination.from(folder: folder), log)
+            XCTFail("Expected the refused folder to fail")
+        } catch let error as BackupError {
+            XCTAssertEqual(error.kind, .setupFailed)
+            XCTAssertTrue(error.message.contains("Files & Folders"), error.message)
+        }
+    }
+
+    func testOnlyARefusalIsNotAllowed() {
+        XCTAssertTrue(BackupEngine.isNotAllowed(.failed("ls: /x: Operation not permitted")))
+        XCTAssertFalse(BackupEngine.isNotAllowed(.failed("ls: /x: No such file or directory")))
+        XCTAssertFalse(BackupEngine.isNotAllowed(.hung))
+        XCTAssertFalse(BackupEngine.isNotAllowed(.ok()))
+    }
+
     /// Away from home nothing answers. That's a wait, not a failure, and
     /// nothing else is tried: the old mount script put macOS's "problem
     /// connecting to the server" alert up with every try (2026-11-12).

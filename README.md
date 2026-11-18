@@ -36,12 +36,12 @@ Kept is free and privacy-focused, and it always will be. I hope it gives you the
 
 ## Download
 
-Get **Kept-1.4.zip** from the [latest release](https://github.com/cressmancm/KeptApp/releases/latest), unzip it, drag Kept to Applications, and open it. It's signed and notarized by Apple, so it opens without warnings (see [Security and privacy](#security-and-privacy)). Kept's setup then walks you through turning on Full Disk Access in macOS and choosing a backup folder.
+Get **Kept-1.4.zip** from the [latest release](https://github.com/cressmancm/KeptApp/releases/latest), unzip it, drag Kept to Applications, and open it. It's signed and notarized by Apple, so it opens without warnings (see [Security and privacy](#security-and-privacy)). Kept's setup then asks for access to your Photos library and helps you choose a backup folder.
 
 ## Requirements
 
 - Apple silicon, macOS 26 or later
-- Full Disk Access for Kept, turned on in macOS System Settings → Privacy & Security, so Kept can read your Apple Photos library. Kept's setup walks you through it.
+- Full Access to your Photos library for Kept, so it can read your library. macOS asks during Kept's setup: choose **Allow Full Access**.
 - Your photos stored on this Mac. Kept only backs up what's actually on your Mac, not what's only in iCloud. In Apple Photos, go to Settings → iCloud and turn on **Download Originals to this Mac** so every photo gets backed up (see [Limitations](#limitations)).
 - Enough space to store your library, on your Mac, an external drive, or a network drive
 
@@ -56,18 +56,22 @@ Get **Kept-1.4.zip** from the [latest release](https://github.com/cressmancm/Kep
 
 ### Permissions
 
-Kept needs only these macOS permissions, each to back up your library or tell you when something's wrong.
+Kept needs only these macOS permissions, each to back up your library or tell you when something's wrong. It doesn't need Full Disk Access.
 
 | macOS permission | Why Kept needs it |
 | --- | --- |
-| **Full Disk Access** | To read your Apple Photos library. Kept reads the library's files directly, which macOS only allows with Full Disk Access. Kept never changes, moves, or uploads anything in your library. |
+| **Photos**, with Full Access | To read your Apple Photos library. Kept reads the library's files directly, which macOS allows with Full Access, not Limited Access. Kept never changes, moves, or uploads anything in your library. |
+| **Files & Folders** | To copy your photos to the backup folder, when it's on a network drive, an external drive, or in Documents, Desktop, or Downloads. macOS asks when you choose the folder. |
 | **Notifications** | To tell you when a backup fails or backups stop. Optional, but recommended. |
+
+Earlier versions of Kept needed Full Disk Access. After you update, Kept pauses until you allow it access to Photos, once. Then you can turn Full Disk Access off for Kept in macOS System Settings → Privacy & Security → Full Disk Access.
 
 Kept also adds a login item and a once-a-day check, which macOS lists in System Settings → General → Login Items & Extensions. The daily check is how Kept warns you if backups stop, even when Kept isn't running.
 
 ## Limitations
 
 - **Kept only backs up local copies.** If Apple Photos is set to **Optimize Mac Storage**, it keeps only some of your full-size photos on your Mac. The rest live in iCloud, where Kept can't back them up. I recommend switching Apple Photos to **Download Originals to this Mac** (Settings → iCloud) so Kept backs up your full library.
+- **Kept backs up the library in your Pictures folder.** That's where Apple Photos keeps it unless you've moved it, and if you have more than one library, it's the one Kept backs up. If there's no library in Pictures, Kept looks for your System Photo Library, which takes Full Disk Access. Turn it on for Kept in macOS System Settings → Privacy & Security → Full Disk Access.
 - **Shared photos aren't part of your library.** In Apple Photos, shared albums, shared collections, and Shared with You aren't technically in your library, so Apple Photos often doesn't keep them on your Mac, and Kept can't back them up. To make sure a shared photo is backed up, add it to your Apple Photos library.
 
 ## How it works
@@ -106,7 +110,7 @@ cd app
 ./build.sh           # builds, signs, installs to /Applications, and opens Kept
 ```
 
-`build.sh` signs with your Developer ID if you have one, or with the self-signed "Kept Dev" certificate from `make-cert.sh` if you don't. Either way, the signature stays the same from build to build, so you only turn on Full Disk Access in macOS once. Run `make` in `app` to see every shortcut, including a debug build Xcode can attach to.
+`build.sh` signs with your Developer ID if you have one, or with the self-signed "Kept Dev" certificate from `make-cert.sh` if you don't. Either way, the signature stays the same from build to build, so you only allow Kept access to Photos once. Run `make` in `app` to see every shortcut, including a debug build Xcode can attach to.
 
 To run the tests:
 

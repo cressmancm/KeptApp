@@ -30,7 +30,7 @@ struct Destination: Codable, Equatable, Sendable {
     /// with the backup (PhotosLibrary). Choosing the folder is how you say a
     /// changed library is the one you mean, and it covers one backup, not
     /// every library after it. Set without reading the library, which can
-    /// happen in setup before Full Disk Access is on.
+    /// happen in setup before Kept has access to Photos.
     var libraryConfirmed: Bool?
     /// The folder itself on a local disk, by its file number, so another
     /// folder moved into its place isn't taken for it. nil on a share, where

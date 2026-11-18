@@ -19,7 +19,7 @@ PBS_TAG="20260718"
 PBS_ASSET="cpython-3.13.14+${PBS_TAG}-aarch64-apple-darwin-install_only.tar.gz"
 PBS_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_TAG}/${PBS_ASSET}"
 # From the release's SHA256SUMS. Checked before the archive is unpacked: the
-# interpreter ends up running with Kept's Full Disk Access.
+# interpreter ends up running with Kept's access to the Photos library.
 PBS_SHA256="dca7c3bac21f023cf294705b27f4f3e9c70399c40790ebb81e8d0eff15b00770"
 OSXPHOTOS_VERSION="0.77.2"
 # Every package, osxphotos' dependencies included, pinned with hashes. Without

@@ -11,8 +11,18 @@
   (BackupEngine.mountScriptArguments), which sends no Apple Event, so Kept
   never needs Automation. Verified 2026-10-13: a build without this
   entitlement reconnected an ejected share in under a second.
+
+  photos-library: under the hardened runtime, an app that doesn't declare it
+  is refused the Photos permission without macOS ever asking. That's why the
+  Photos prompt never appeared in August 2026, and why Kept needed Full Disk
+  Access until 2026-11-18. With it, the Photos permission (Full Access) lets
+  Kept and osxphotos read the library's files: tested that day with a
+  separate app signed the same way, which read Photos.sqlite and exported 5
+  photos with no Full Disk Access.
 -->
 <plist version="1.0">
 <dict>
+    <key>com.apple.security.personal-information.photos-library</key>
+    <true/>
 </dict>
 </plist>

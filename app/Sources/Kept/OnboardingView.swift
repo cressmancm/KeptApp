@@ -15,7 +15,7 @@ struct OnboardingView: View {
 
     /// The screens, numbered as Settings → Advanced lists them.
     enum Step: Int, CaseIterable {
-        case welcome = 1, fullDiskAccess, folder, done
+        case welcome = 1, photosAccess, folder, done
     }
 
     @State private var step: Step
@@ -28,9 +28,9 @@ struct OnboardingView: View {
         _step = State(initialValue: Step(rawValue: startPage) ?? .welcome)
     }
 
-    /// No network drive screen: Full Disk Access covers network drives, so
-    /// with it on macOS never asks about them. (There was one, explaining a
-    /// prompt that, since Kept moved to Full Disk Access, never came.)
+    /// No screen of its own for the backup folder's permission: macOS asks
+    /// for it when the folder is chosen (DestinationPicker), and the prompt
+    /// says what it's for.
     private var steps: [Step] { Step.allCases }
 
     var body: some View {
@@ -38,8 +38,8 @@ struct OnboardingView: View {
             switch step {
             case .welcome:
                 WelcomeScreen(advance: advance)
-            case .fullDiskAccess:
-                FullDiskAccessScreen(controller: controller, footer: footer())
+            case .photosAccess:
+                PhotosAccessScreen(controller: controller, footer: footer())
             case .folder:
                 ChooseFolderScreen(
                     controller: controller,

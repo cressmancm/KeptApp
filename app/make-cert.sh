@@ -2,9 +2,10 @@
 # make-cert.sh — one-time creation of the "Kept Dev" self-signed
 # code-signing identity in the login keychain.
 #
-# TCC keys its Full Disk Access grant to the app's designated requirement;
-# with a stable certificate that requirement doesn't change across rebuilds,
-# so FDA only ever has to be granted once.
+# TCC keys Kept's permissions to the app's designated requirement; with a
+# stable certificate that requirement doesn't change across rebuilds, so they
+# only ever have to be granted once. Without a Team ID, macOS may refuse the
+# Photos permission without asking: turn on Full Disk Access instead.
 #
 # May prompt for your login password (keychain import / trust settings).
 # Needs no sudo: the trust it adds is this user's alone.

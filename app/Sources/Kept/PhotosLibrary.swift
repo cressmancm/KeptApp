@@ -7,26 +7,24 @@ import Foundation
 /// second library, even a new empty one, and the next backup compared the
 /// mirror against it, found nothing it recognised, and set the whole backup
 /// aside in Removed from Photos, to be deleted after the retention period
-/// (production review S6, 2026-10-13). So Kept names the System Photo Library,
-/// the one iCloud Photos syncs, and before every export checks that it holds
-/// the photos already in the backup.
+/// (production review S6, 2026-10-13). So Kept names the library itself, and
+/// before every export checks that it holds the photos already in the backup.
+/// It names the one in Pictures, or the System Photo Library when there's
+/// none there (BackupEngine.libraryToBackUp).
 enum PhotosLibrary {
     /// The System Photo Library, as macOS records it, or nil when it can't
     /// be read. macOS 27 keeps it in photolibraryd's group container; 26 and
     /// earlier in its app container, which on 27 is still there without the
-    /// key. The same order osxphotos uses. Reading either takes Full Disk
-    /// Access, so callers check access first rather than raise a prompt.
+    /// key. The same order osxphotos uses. Both are the Photos app's own
+    /// data: reading either takes Full Disk Access, which the Photos
+    /// permission doesn't cover (tested 2026-11-18). Without it the read is
+    /// refused at once, with no prompt, and macOS posts "Data Access
+    /// Blocked", so Kept reads it only when there's no library in Pictures.
     static func systemLibraryPath(home: URL = FileManager.default.homeDirectoryForCurrentUser)
         -> String?
     {
-        let plists = [
-            "Library/Group Containers/group.com.apple.photolibraryd.private/Library/Preferences/"
-                + "group.com.apple.photolibraryd.private.plist",
-            "Library/Containers/com.apple.photolibraryd/Data/Library/Preferences/"
-                + "com.apple.photolibraryd.plist",
-        ]
-        for relative in plists {
-            guard let data = try? Data(contentsOf: home.appending(path: relative)),
+        for file in recordFiles(home: home) {
+            guard let data = try? Data(contentsOf: URL(filePath: file)),
                 let plist = try? PropertyListSerialization.propertyList(from: data, format: nil)
                     as? [String: Any],
                 let path = plist["SystemLibraryPath"] as? String, !path.isEmpty
@@ -34,6 +32,19 @@ enum PhotosLibrary {
             return path
         }
         return nil
+    }
+
+    /// The files where macOS records the System Photo Library, newest macOS
+    /// first.
+    static func recordFiles(home: URL = FileManager.default.homeDirectoryForCurrentUser)
+        -> [String]
+    {
+        [
+            "Library/Group Containers/group.com.apple.photolibraryd.private/Library/Preferences/"
+                + "group.com.apple.photolibraryd.private.plist",
+            "Library/Containers/com.apple.photolibraryd/Data/Library/Preferences/"
+                + "com.apple.photolibraryd.plist",
+        ].map { home.appending(path: $0).path }
     }
 
     /// The library's database, which the overlap check reads.

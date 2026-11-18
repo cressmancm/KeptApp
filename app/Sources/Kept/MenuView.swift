@@ -464,6 +464,16 @@ private struct WaitingForSharePanel: View {
 private struct AccessBlockedPanel: View {
     let controller: BackupController
 
+    /// What to do, from where the Photos permission stands. Once Kept has
+    /// asked, macOS won't ask again, so the rest point to System Settings.
+    static func step(_ permission: LibraryAccess.Permission) -> LocalizedStringKey {
+        switch permission {
+        case .notAsked: "Allow Kept to access your photos."
+        case .limited: "Kept has Limited Access. Choose **Full Access** for Kept in Photos."
+        case .denied, .granted: "Turn on Kept in **Photos**, with **Full Access**."
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             PanelSection {
@@ -472,11 +482,11 @@ private struct AccessBlockedPanel: View {
                     title: "Backups are paused",
                     subtitle: "Kept can't read your Photos library")
 
-                // One step. There used to be a second, Network Volumes in Files &
-                // Folders, but Full Disk Access covers network drives too: with it
-                // on, macOS never asks about them.
+                // One step: Photos access. The backup folder's permission is
+                // asked for along with it (allowPhotosAccess), and when the
+                // folder is chosen.
                 InfoCard(spacing: 8) {
-                    Text("Turn on Kept in **Full Disk Access**.")
+                    Text(Self.step(controller.photosPermission))
                         .font(.caption)
                         .foregroundStyle(Color.primary.opacity(0.72))
                         .lineSpacing(3)
@@ -484,7 +494,9 @@ private struct AccessBlockedPanel: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                Button("Open Full Disk Access…") { controller.openFullDiskAccessSettings() }
+                Button(controller.photosPermission == .notAsked
+                    ? "Allow Access…" : "Open Photos Settings…"
+                ) { controller.allowPhotosAccess() }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .frame(maxWidth: .infinity)

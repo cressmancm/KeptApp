@@ -163,6 +163,11 @@ final class BackupController {
     /// outside an app bundle.
     var notificationAuthorization: UNAuthorizationStatus?
 
+    /// The Photos permission, as last read. Says which way the paused panel
+    /// and setup point: the prompt if Kept hasn't asked, System Settings if
+    /// it has.
+    var photosPermission: LibraryAccess.Permission = .notAsked
+
     /// True when a warning Kept is set to send can't arrive: the user denied
     /// the prompt, or turned Kept off in System Settings since. The Settings
     /// checkboxes would otherwise go on promising warnings that never come.
@@ -244,7 +249,7 @@ final class BackupController {
     /// Launch-time work held back until onboarding has had its say: the
     /// notification request, which raises a system dialog, and the library
     /// probe, which would otherwise put the paused panel up before the flow has
-    /// explained Full Disk Access.
+    /// asked for Photos access.
     ///
     /// Both used to run unconditionally here, which on a genuine first launch
     /// put a dialog on screen before the user had been told what Kept is. That
@@ -305,7 +310,33 @@ final class BackupController {
     }
 
     /// See `LibraryAccess.canRead()`.
-    func canReadLibrary() async -> Bool? { await LibraryAccess.canRead() }
+    func canReadLibrary() async -> Bool? {
+        photosPermission = LibraryAccess.permission()
+        return await LibraryAccess.canRead()
+    }
+
+    /// macOS's Photos prompt, the first time. Once Kept has asked, macOS
+    /// answers without asking again, so after that this opens the Photos
+    /// list in System Settings instead.
+    ///
+    /// With Full Access, the backup folder's permission is asked for too, in
+    /// case this Mac had Full Disk Access for an earlier Kept and has just
+    /// turned it off. Full Disk Access covered the folder, so macOS never
+    /// asked about it, and the first backup would be where it did.
+    func allowPhotosAccess() {
+        guard LibraryAccess.permission() == .notAsked else {
+            openPhotosSettings()
+            return
+        }
+        Task {
+            photosPermission = await LibraryAccess.request()
+            NSApp.activate()
+            if photosPermission == .granted, let destination {
+                _ = await DestinationPicker.askForAccess(destination.path)
+            }
+            await refreshPhotosAccess()
+        }
+    }
 
     private func refreshPhotosAccess() async {
         guard let hasAccess = await canReadLibrary() else { return }
@@ -333,12 +364,18 @@ final class BackupController {
     /// keychain won't seal it, the folder Kept had stays, and is sealed again
     /// in case the attempt cost it its key.
     func chooseDestination() {
-        guard !isRunning, !isUninstalling,
-            let chosen = DestinationPicker.choose(
+        guard !isRunning, !isUninstalling else { return }
+        Task {
+            guard let chosen = await DestinationPicker.choose(
                 current: destination, retentionDays: removedRetentionDays)
-        else { return }
+            else { return }
+            adopt(chosen)
+        }
+    }
+
+    private func adopt(_ chosen: Destination) {
         // A backup that started while the open panel was up.
-        guard !isRunning else { return }
+        guard !isRunning, !isUninstalling else { return }
         var picked = Destination.adopting(chosen, replacing: destination)
         picked.libraryConfirmed = true
 
@@ -435,7 +472,7 @@ final class BackupController {
     ///
     /// Nothing starts on its own before setup is finished either. A folder
     /// chosen in setup, and the window closed, used to let the 2 AM backup
-    /// run before Full Disk Access and notifications were set up (C4).
+    /// run before Photos access and notifications were set up (C4).
     nonisolated static func mayStart(
         _ trigger: BackupTrigger, cadence: BackupCadence, setupDone: Bool = true
     ) -> Bool {
@@ -549,12 +586,12 @@ final class BackupController {
         accessTestResult = "Testing…"
         Task {
             let result = await engine.accessTest()
-            // A failed read is almost always Full Disk Access, which is the
-            // one thing the user can fix from here, so the failure says so.
+            // A failed read is almost always the Photos permission, which is
+            // the one thing the user can fix from here, so the failure says so.
             // The raw tool output stays in access-test.log. Timeouts and a
             // broken install already come back as sentences.
             self.accessTestResult = result.hasPrefix("FAILED")
-                ? "Kept can't read your library. Check that Full Disk Access is on."
+                ? "Kept can't read your library. Check that it has Full Access to Photos."
                 : result
             // A read can still raise a consent dialog, and answering it hands
             // focus to the system and leaves this app behind it — an agent app
@@ -959,11 +996,11 @@ final class BackupController {
         NSWorkspace.shared.open(Config.logDir)
     }
 
-    /// Straight to the Full Disk Access list, which is where Kept's access to
-    /// the library is actually granted.
-    func openFullDiskAccessSettings() {
+    /// Straight to the Photos list in Privacy & Security, where Kept's
+    /// access can be changed once it has asked.
+    func openPhotosSettings() {
         if let url = URL(
-            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Photos") {
             NSWorkspace.shared.open(url)
         }
     }

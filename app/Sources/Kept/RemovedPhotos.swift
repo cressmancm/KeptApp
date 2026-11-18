@@ -147,7 +147,7 @@ enum RemovedPhotos {
     static func runHoldAndExit(arguments: [String]) -> Never {
         // Only as osxphotos' cleanup command, under a backup this binary
         // started. Run any other way — say from a LaunchAgent someone else
-        // wrote — Kept is judged as itself, Full Disk Access and all, and would
+        // wrote — Kept is judged as itself, with all its access, and would
         // move any file it can read into any folder the caller names.
         guard ProcessAncestry.isDescendantOfOwnExecutable() else {
             FileHandle.standardError.write(Data(
@@ -407,7 +407,7 @@ extension RemovedPhotos {
 
     static func runMaintenanceAndExit(arguments: [String]) -> Never {
         // The same rule as --hold-removed, for the same reason: run any other
-        // way, Kept has its own Full Disk Access, and this deletes.
+        // way, Kept has its own access to the backup folder, and this deletes.
         guard ProcessAncestry.isDescendantOfOwnExecutable() else {
             FileHandle.standardError.write(Data(
                 "Kept: the cleanup helper only runs as part of a Kept backup\n".utf8))

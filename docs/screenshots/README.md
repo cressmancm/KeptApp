@@ -12,11 +12,11 @@ Kept lives in the menubar. Click it to see whether your photos are backed up.
 
 ## Setup
 
-Two steps: turn on Full Disk Access, then choose a backup folder.
+Two steps: allow access to Photos, then choose a backup folder.
 
-| 1 · Welcome | 2 · Full Disk Access |
+| 1 · Welcome | 2 · Photos access |
 | --- | --- |
-| <img src="setup-1-welcome.png" width="400" alt="Welcome screen: A second copy of every photo"> | <img src="setup-2-full-disk-access.png" width="400" alt="Turn on Full Disk Access screen"> |
+| <img src="setup-1-welcome.png" width="400" alt="Welcome screen: A second copy of every photo"> | <img src="setup-2-full-disk-access.png" width="400" alt="Allow access to Photos screen"> |
 
 | 3 · Backup folder | 4 · Done |
 | --- | --- |

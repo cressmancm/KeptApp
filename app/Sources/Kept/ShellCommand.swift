@@ -143,7 +143,7 @@ enum ShellCommand {
 ///
 /// Kept's own environment is whatever launched it chose — and a LaunchAgent
 /// anyone running as this user can write may launch it with any variables at
-/// all. Children run with Kept's Full Disk Access, so they get an allow-list
+/// all. Children run with Kept's access to your photos, so they get an allow-list
 /// rather than a copy: locale, identity, and HOME and TMPDIR read from the
 /// system rather than from the inherited values (osxphotos depends on all
 /// three), and a fixed PATH, so nothing that resolves a program by name can be

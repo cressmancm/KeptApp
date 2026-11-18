@@ -36,14 +36,24 @@
     <!-- Menubar-only: no Dock icon, no app switcher entry -->
     <key>LSUIElement</key>
     <true/>
-    <!-- Kept no longer asks for Photos access: the library is read as files,
-         under Full Disk Access, and the narrower Photos grant has been
-         unobtainable since the bundle identifier changed (self-signed, no
-         Team ID). The key stays because the bundled osxphotos links Apple's
-         Photos framework, and macOS terminates a process that touches PhotoKit
-         without a usage description rather than merely denying it. -->
+    <!-- What macOS shows when Kept asks. Photos: Kept reads the library's
+         files, which the Photos permission allows when it's Full Access (see
+         app-entitlements.plist). The others are the places a backup folder
+         can be: a NAS, an external drive, or a folder in Documents, Desktop,
+         or Downloads. Kept asks for the backup folder's while you choose it,
+         so the question never waits at 2 AM (DestinationPicker). -->
     <key>NSPhotoLibraryUsageDescription</key>
-    <string>Kept copies your library to a backup folder every night.</string>
+    <string>Kept reads your library to copy it to your backup folder. It never changes or uploads your photos.</string>
+    <key>NSNetworkVolumesUsageDescription</key>
+    <string>Kept copies your photos to the backup folder on this network drive.</string>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>Kept copies your photos to the backup folder on this drive.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Kept copies your photos to the backup folder in Documents.</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>Kept copies your photos to the backup folder on the Desktop.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Kept copies your photos to the backup folder in Downloads.</string>
     <key>NSHumanReadableCopyright</key>
     <string>Chip Cressman</string>
 </dict>

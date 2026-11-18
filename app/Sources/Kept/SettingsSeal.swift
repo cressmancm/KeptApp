@@ -5,7 +5,7 @@ import Security
 /// Tamper-evidence for the one setting that decides where Kept writes.
 ///
 /// UserDefaults is a plain file anything running as this user can rewrite,
-/// and Kept holds Full Disk Access. Unchecked, a program without that access
+/// and Kept can read the Photos library. Unchecked, a program without that access
 /// could set the backup folder to somewhere it can read and let the next
 /// backup copy the whole library there for it. So the stored destination
 /// carries an HMAC, and the key lives in the keychain.

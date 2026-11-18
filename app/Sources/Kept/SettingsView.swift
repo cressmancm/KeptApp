@@ -548,7 +548,7 @@ private struct ReviewToolsSection: View {
 
     private static let onboardingScreens = [
         "1 · Welcome",
-        "2 · Full Disk Access",
+        "2 · Photos access",
         "3 · Choose folder",
         "4 · Done",
     ]

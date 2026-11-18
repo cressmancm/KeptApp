@@ -2,7 +2,7 @@
 # build.sh — build, bundle, sign, and install Kept.app.
 #
 # Signs with the first "Developer ID Application" identity in the keychain,
-# so a local build carries the same identity as a release: Full Disk Access
+# so a local build carries the same identity as a release: its permissions
 # and the keychain item that seals the backup folder carry over between the
 # two, and nothing has to be granted again when you switch. A local build is
 # never notarized and doesn't need to be: macOS only checks notarization on
