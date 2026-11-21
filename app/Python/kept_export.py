@@ -229,7 +229,25 @@ def _copy(original):
             with open(src, "rb") as source, os.fdopen(descriptor, "wb", closefd=False) as target:
                 shutil.copyfileobj(source, target, 1 << 20)
             # As shutil.copy does.
-            os.fchmod(descriptor, stat.S_IMODE(os.stat(src).st_mode))
+            original_file = os.stat(src)
+            os.fchmod(descriptor, stat.S_IMODE(original_file.st_mode))
+        finally:
+            os.close(descriptor)
+        # The copy keeps the original's modification date, as the copy this
+        # replaces (NSFileManager's) did. osxphotos records the copy's size and
+        # date the moment this returns, and --update copies again any file
+        # whose date no longer matches. Left with the date of copying, a file
+        # on a network share reads about 2 seconds later once the server has
+        # closed it, so about half of a new backup was copied again every
+        # night (measured 2026-11-21: 35,296 of 66,081 files). A date that was
+        # set stays as set. Done after the close, on a new descriptor, so no
+        # write still on its way to the server can move it.
+        descriptor = _open_in(names, os.O_RDONLY)
+        try:
+            with _Ours():
+                # As osxphotos does, for shares that otherwise lose the times.
+                fcntl.fcntl(descriptor, fcntl.F_NOCACHE, 1)
+                os.utime(descriptor, ns=(original_file.st_atime_ns, original_file.st_mtime_ns))
         finally:
             os.close(descriptor)
         return True

@@ -132,6 +132,32 @@ final class ExportGuardTests: XCTestCase {
         try outsideIsUntouched()
     }
 
+    /// Found 2026-11-21 on a new backup to a NAS: the launcher's copy left
+    /// each file with the date of copying, the share reported that date about
+    /// 2 seconds later once the file was closed, and `--update` copied 35,296
+    /// of 66,081 files again the next night. The copy keeps the original's
+    /// date, as the copy it replaced did, both onto a new name and over an
+    /// old copy.
+    func testACopyKeepsTheOriginalsDate() async throws {
+        try plant()
+        let output = try await python("""
+            os.utime(src, (1.2e9, 1.1e9))
+            day = os.path.join(root, "2024/05/06")
+            FileUtil.makedirs(day, exist_ok=True)
+            FileUtil.copy(src, os.path.join(day, "IMG_2.jpg"))
+            print("new", int(os.stat(os.path.join(day, "IMG_2.jpg")).st_mtime))
+            FileUtil.copy(src, day)
+            print("into folder", int(os.stat(os.path.join(day, "photo.jpg")).st_mtime))
+            os.utime(src, (1.2e9, 1.15e9))
+            FileUtil.copy(src, os.path.join(day, "IMG_2.jpg"))
+            print("again", int(os.stat(os.path.join(day, "IMG_2.jpg")).st_mtime))
+            """)
+        XCTAssertTrue(output.contains("new 1100000000\n"), output)
+        XCTAssertTrue(output.contains("into folder 1100000000\n"), output)
+        XCTAssertTrue(output.contains("again 1150000000\n"), output)
+        try outsideIsUntouched()
+    }
+
     /// The race a check before the export couldn't close: the year folder
     /// swapped for a link and back, over and over, while photos are copied
     /// into it. Not one lands outside.
