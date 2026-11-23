@@ -51,7 +51,7 @@ Kept is signed with my Apple Developer ID and notarized by Apple. The code is al
 
 ## Download
 
-Get **Kept-1.4.zip** from the [latest release](https://github.com/cressmancm/KeptApp/releases/latest), unzip it, drag Kept to Applications, and open it. It's signed and notarized by Apple, so it opens without warnings. Kept's setup then asks for access to your Photos library and helps you choose a backup folder.
+Get **Kept-1.5.zip** from the [latest release](https://github.com/cressmancm/KeptApp/releases/latest), unzip it, drag Kept to Applications, and open it. It's signed and notarized by Apple, so it opens without warnings. Kept's setup then asks for access to your Photos library and helps you choose a backup folder.
 
 ## Support
 
