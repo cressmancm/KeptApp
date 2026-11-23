@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Observation
+import os
 import ServiceManagement
 import UserNotifications
 
@@ -13,6 +14,10 @@ import UserNotifications
 @MainActor
 @Observable
 final class BackupController {
+    /// The macOS log (Console, or `log show`), for the few events that happen
+    /// outside a backup and so have no run log to go in.
+    private static let systemLog = Logger(subsystem: "com.chipcressman.Kept", category: "app")
+
     enum Status: Equatable {
         case needsDestination
         case needsPhotosAccess
@@ -259,8 +264,17 @@ final class BackupController {
     private func requestExplainedPermissions() async {
         guard hasCompletedOnboarding else { return }
         if Bundle.main.bundleURL.pathExtension == "app" {
-            _ = try? await UNUserNotificationCenter.current()
-                .requestAuthorization(options: [.alert, .sound])
+            // macOS answers a request it won't show (one already turned down,
+            // or a prompt left unanswered on an earlier launch) with an error
+            // and no prompt. Settings shows the result; the reason goes to the
+            // system log, the only place it is written down.
+            do {
+                _ = try await UNUserNotificationCenter.current()
+                    .requestAuthorization(options: [.alert, .sound])
+            } catch {
+                Self.systemLog.error(
+                    "Notification request refused: \(String(describing: error), privacy: .public)")
+            }
             refreshNotificationAuthorization()
         }
         await refreshPhotosAccess()
